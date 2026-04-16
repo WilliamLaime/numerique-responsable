@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Numérique Responsable</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="logo">
+      <span class="logo-leaf" aria-hidden="true">🌿</span>
+      <div>
+        <h1>Numérique Responsable</h1>
+        <p class="subtitle">Audit accessibilité &amp; écoconception</p>
+      </div>
+    </div>
+    <button id="detach-btn" class="icon-btn" title="Ouvrir en fenêtre" aria-label="Ouvrir en fenêtre détachée">⧉</button>
+  </header>
+
+  <main id="main">
+    <section id="screen-select" class="screen active">
+      <div class="select-tabs" role="tablist">
+        <button class="select-tab active" data-panel="new" role="tab" aria-selected="true" aria-controls="panel-new">
+          Nouvel audit
+        </button>
+        <button class="select-tab" data-panel="saved" role="tab" aria-selected="false" aria-controls="panel-saved">
+          Mes audits <span id="saved-count" class="tab-badge" style="display:none">0</span>
+        </button>
+      </div>
+
+      <div id="panel-new" class="select-panel active" role="tabpanel" aria-labelledby="tab-new">
+        <div class="field">
+          <label class="field-label">Périmètre</label>
+          <div class="scope-options">
+            <label class="scope-option">
+              <input type="radio" name="scope" value="site" checked>
+              <span>
+                <strong>Site complet</strong>
+                <em>Crawle plusieurs pages via sitemap.xml + liens internes</em>
+              </span>
+            </label>
+            <label class="scope-option">
+              <input type="radio" name="scope" value="page">
+              <span>
+                <strong>Page courante uniquement</strong>
+                <em>Audit rapide de l'onglet actif</em>
+              </span>
+            </label>
+          </div>
+        </div>
+
+        <div class="field" id="crawl-options">
+          <label class="field-label" for="page-limit">Nombre max de pages</label>
+          <select id="page-limit">
+            <option value="all" selected>Toutes les pages du site</option>
+            <option value="5">5 pages</option>
+            <option value="10">10 pages</option>
+            <option value="25">25 pages</option>
+            <option value="50">50 pages</option>
+          </select>
+        </div>
+
+        <details class="field advanced-settings">
+          <summary>Réglages avancés</summary>
+          <div class="advanced-grid">
+            <label class="advanced-item">
+              <span class="field-label">Pages en parallèle</span>
+              <input type="number" id="opt-concurrency" min="1" max="8" step="1" value="4">
+              <em class="muted">Plus élevé = audit plus rapide mais plus gourmand.</em>
+            </label>
+            <label class="advanced-item">
+              <span class="field-label">Délai de stabilisation (ms)</span>
+              <input type="number" id="opt-settle-delay" min="0" max="5000" step="100" value="800">
+              <em class="muted">Attente après chargement pour laisser les scripts se stabiliser.</em>
+            </label>
+          </div>
+        </details>
+
+        <h3 class="subsection">Type d'audit</h3>
+        <div class="audit-cards">
+          <button class="audit-card" data-mode="a11y">
+            <div class="card-icon a11y" aria-hidden="true">♿</div>
+            <div class="card-body">
+              <h3>Accessibilité</h3>
+              <p>RGAA 4.1.2 / WCAG 2.1</p>
+            </div>
+          </button>
+          <button class="audit-card" data-mode="eco">
+            <div class="card-icon eco" aria-hidden="true">🌱</div>
+            <div class="card-body">
+              <h3>Écoconception</h3>
+              <p>RGESN 2024 · 9 thématiques</p>
+            </div>
+          </button>
+          <button class="audit-card primary" data-mode="both">
+            <div class="card-icon both" aria-hidden="true">✨</div>
+            <div class="card-body">
+              <h3>Audit complet</h3>
+              <p>Accessibilité + Écoconception</p>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <div id="panel-saved" class="select-panel" role="tabpanel" aria-labelledby="tab-saved" hidden>
+        <div id="saved-empty" class="saved-empty">
+          <div class="saved-empty-icon" aria-hidden="true">📂</div>
+          <p>Aucun audit sauvegardé pour l'instant.</p>
+          <p class="muted">Lance un audit, puis clique sur <strong>💾 Sauvegarder</strong> pour le retrouver ici.</p>
+        </div>
+        <ul id="saved-audits-list" class="saved-list"></ul>
+      </div>
+    </section>
+
+    <section id="screen-loading" class="screen">
+      <div class="loader">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="loading-text">Analyse en cours...</p>
+        <div class="progress-wrap">
+          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+          <p id="progress-url" class="progress-url"></p>
+        </div>
+        <button id="cancel-btn" class="btn-secondary cancel-btn">← Annuler l'audit</button>
+      </div>
+    </section>
+
+    <section id="screen-results" class="screen">
+      <div class="results-header">
+        <button id="back-btn" class="icon-btn" title="Retour" aria-label="Retour">←</button>
+        <h2 id="results-title">Résultats</h2>
+        <div class="header-actions" role="group" aria-label="Actions de l'audit">
+          <button id="save-btn" class="action-btn save" title="Sauvegarder dans le plugin">
+            <span class="btn-icon" aria-hidden="true">💾</span>
+            <span class="btn-label">Sauvegarder</span>
+          </button>
+          <button id="export-csv" class="action-btn" title="Exporter en CSV">
+            <span class="btn-icon" aria-hidden="true">📄</span>
+            <span class="btn-label">CSV</span>
+          </button>
+          <button id="export-pdf" class="action-btn" title="Exporter en PDF">
+            <span class="btn-icon" aria-hidden="true">📑</span>
+            <span class="btn-label">PDF</span>
+          </button>
+        </div>
+        <button id="rerun-btn" class="icon-btn" title="Relancer" aria-label="Relancer">↻</button>
+      </div>
+
+      <div id="audited-url" class="audited-url"></div>
+
+      <div id="scores" class="scores"></div>
+
+      <div id="view-toggle" class="view-toggle" role="tablist">
+        <button class="view-btn active" data-view="rule">Par règle</button>
+        <button class="view-btn" data-view="page">Par page</button>
+      </div>
+
+      <div id="theme-filters" class="theme-filters"></div>
+
+      <div class="tabs" id="tabs" role="tablist"></div>
+
+      <div id="issues" class="issues"></div>
+
+      <div id="audit-summary" class="audit-summary"></div>
+    </section>
+
+    <section id="screen-error" class="screen">
+      <div class="error-box">
+        <div class="error-icon" aria-hidden="true">⚠️</div>
+        <h3>Impossible d'analyser cette page</h3>
+        <p id="error-message">Les pages internes du navigateur ne peuvent pas être auditées.</p>
+        <button id="error-back" class="btn-primary">Retour</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>Numérique Responsable · v1.1</span>
+  </footer>
+
+  <div id="nr-modal" class="nr-modal-overlay" hidden>
+    <div class="nr-modal" role="dialog" aria-modal="true" aria-labelledby="nr-modal-message">
+      <p id="nr-modal-message" class="nr-modal-message"></p>
+      <input type="text" id="nr-modal-input" class="nr-modal-input" hidden>
+      <div class="nr-modal-actions">
+        <button type="button" id="nr-modal-cancel" class="btn-secondary">Annuler</button>
+        <button type="button" id="nr-modal-ok" class="btn-primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
