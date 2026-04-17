@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Page de test propre — RGAA conforme</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; color: #111; background: #fff; }
+    :focus-visible { outline: 2px solid #0066cc; }
+  </style>
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Aller au contenu</a>
+
+  <header>
+    <nav aria-label="Principale">
+      <ul>
+        <li><a href="/">Accueil</a></li>
+        <li><a href="/contact">Contact</a></li>
+        <li><a href="/plan-du-site">Plan du site</a></li>
+      </ul>
+    </nav>
+    <form role="search">
+      <label for="q">Rechercher</label>
+      <input type="search" id="q" name="q">
+      <button type="submit">OK</button>
+    </form>
+  </header>
+
+  <main id="main-content">
+    <h1>Page de test conforme</h1>
+
+    <section>
+      <h2>Section 1</h2>
+      <p>Un paragraphe de test.</p>
+
+      <img src="cat.jpg" alt="Un chat sur un canapé">
+      <img src="decor.svg" alt="">
+
+      <figure>
+        <img src="graph.png" alt="Graphique des ventes 2024">
+        <figcaption>Évolution des ventes en 2024.</figcaption>
+      </figure>
+    </section>
+
+    <section>
+      <h2>Formulaire</h2>
+      <form>
+        <div>
+          <label for="fn">Prénom</label>
+          <input id="fn" type="text" name="firstname" autocomplete="given-name">
+        </div>
+        <div>
+          <label for="em">Email</label>
+          <input id="em" type="email" name="email" autocomplete="email">
+        </div>
+
+        <fieldset>
+          <legend>Choix</legend>
+          <label><input type="radio" name="choice" value="a"> Option A</label>
+          <label><input type="radio" name="choice" value="b"> Option B</label>
+        </fieldset>
+
+        <button type="submit">Envoyer</button>
+      </form>
+    </section>
+  </main>
+
+  <footer>
+    <p>© Test</p>
+  </footer>
+</body>
+</html>

@@ -149,14 +149,26 @@
 
       <div id="scores" class="scores"></div>
 
+      <details class="status-legend">
+        <summary>ℹ Comprendre les statuts</summary>
+        <ul class="legend-body">
+          <li><span class="legend-badge status-C">C</span><strong>Conforme</strong> — Critère respecté sur la page (vérification automatique).</li>
+          <li><span class="legend-badge status-NC">NC</span><strong>Non conforme</strong> — Des éléments ne respectent pas le critère. Action requise.</li>
+          <li><span class="legend-badge status-NA">NA</span><strong>Non applicable</strong> — Le critère ne concerne pas cette page (ex. critère tableau sans <code>&lt;table&gt;</code>).</li>
+        </ul>
+      </details>
+
       <div id="view-toggle" class="view-toggle" role="tablist">
-        <button class="view-btn active" data-view="rule">Par règle</button>
+        <button class="view-btn active" data-view="theme">Par thématique</button>
+        <button class="view-btn" data-view="rule">Par règle</button>
         <button class="view-btn" data-view="page">Par page</button>
       </div>
 
-      <div id="theme-filters" class="theme-filters"></div>
-
       <div class="tabs" id="tabs" role="tablist"></div>
+
+      <div id="status-filters" class="status-filters"></div>
+
+      <div id="theme-filters" class="theme-filters"></div>
 
       <div id="issues" class="issues"></div>
 
