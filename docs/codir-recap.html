@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Numérique Responsable — Recap CoDir</title>
+<style>
+  :root {
+    --ink: #0f172a;
+    --ink-soft: #334155;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --bg: #ffffff;
+    --bg-soft: #f8fafc;
+    --primary: #0f766e;
+    --primary-soft: #ccfbf1;
+    --primary-ink: #134e4a;
+    --accent: #1d4ed8;
+    --accent-soft: #dbeafe;
+    --warn: #b45309;
+    --warn-soft: #fef3c7;
+    --danger: #b91c1c;
+    --danger-soft: #fee2e2;
+    --ok: #15803d;
+    --ok-soft: #dcfce7;
+  }
+
+  @page {
+    size: A4;
+    margin: 18mm 16mm 20mm 16mm;
+  }
+  @page :first { margin: 0; }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    color: var(--ink);
+    font-size: 10.5pt;
+    line-height: 1.5;
+    background: var(--bg);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  h1, h2, h3, h4 { color: var(--ink); margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+  h2 { font-size: 20pt; margin-top: 18mm; margin-bottom: 4mm; padding-bottom: 2mm; border-bottom: 2px solid var(--primary); color: var(--primary-ink); }
+  h3 { font-size: 13pt; margin-top: 8mm; margin-bottom: 2mm; color: var(--ink); }
+  h4 { font-size: 11pt; margin-top: 5mm; margin-bottom: 1.5mm; color: var(--ink-soft); }
+  p { margin: 0 0 2.5mm 0; }
+  ul, ol { margin: 0 0 3mm 0; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  strong { color: var(--ink); font-weight: 600; }
+  code { background: var(--bg-soft); padding: 0.5mm 1.2mm; border-radius: 2px; font-size: 9.2pt; font-family: "SF Mono", ui-monospace, Menlo, monospace; color: var(--primary-ink); }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* ---- COVER ---- */
+  .cover {
+    page-break-after: always;
+    height: 297mm;
+    width: 210mm;
+    padding: 22mm 20mm;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(15,118,110,0.12), transparent 55%),
+      radial-gradient(circle at 0% 100%, rgba(29,78,216,0.10), transparent 50%),
+      linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cover .brand {
+    display: flex;
+    align-items: center;
+    gap: 4mm;
+    color: var(--primary-ink);
+    font-weight: 700;
+    font-size: 11pt;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .cover .brand .dot {
+    width: 8mm; height: 8mm; border-radius: 50%;
+    background: linear-gradient(135deg, #14b8a6, #0f766e);
+    box-shadow: 0 2px 8px rgba(15,118,110,0.3);
+  }
+  .cover h1 {
+    font-size: 42pt;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: 4mm;
+  }
+  .cover .kicker {
+    color: var(--primary);
+    font-size: 13pt;
+    font-weight: 600;
+    margin-bottom: 4mm;
+    letter-spacing: 0.02em;
+  }
+  .cover .lede {
+    font-size: 13pt;
+    color: var(--ink-soft);
+    max-width: 135mm;
+    line-height: 1.55;
+  }
+  .cover .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5mm;
+    margin-top: 8mm;
+  }
+  .cover .stat {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 4mm;
+    padding: 5mm;
+    box-shadow: 0 1px 3px rgba(15,23,42,0.04);
+  }
+  .cover .stat .num {
+    font-size: 26pt;
+    font-weight: 800;
+    color: var(--primary);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .cover .stat .lbl {
+    font-size: 9.5pt;
+    color: var(--muted);
+    margin-top: 2mm;
+    letter-spacing: 0.02em;
+  }
+  .cover .meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    color: var(--muted);
+    font-size: 10pt;
+    padding-top: 4mm;
+    border-top: 1px solid var(--line);
+  }
+  .cover .meta .right { text-align: right; }
+  .cover .meta strong { color: var(--ink); }
+
+  /* ---- CONTENT ---- */
+  .content { padding: 0; }
+  section { page-break-inside: avoid; }
+  section.wide { page-break-inside: auto; }
+
+  h2 .num-badge {
+    display: inline-block;
+    background: var(--primary);
+    color: white;
+    font-size: 11pt;
+    font-weight: 700;
+    padding: 1mm 3mm;
+    border-radius: 3px;
+    margin-right: 3mm;
+    vertical-align: middle;
+  }
+
+  .lede-section {
+    font-size: 11.5pt;
+    color: var(--ink-soft);
+    margin-bottom: 5mm;
+  }
+
+  /* ---- CALLOUTS ---- */
+  .callout {
+    border-radius: 3mm;
+    padding: 4mm 5mm;
+    margin: 3mm 0;
+    border-left: 4px solid;
+    page-break-inside: avoid;
+  }
+  .callout.ok { background: var(--ok-soft); border-color: var(--ok); }
+  .callout.warn { background: var(--warn-soft); border-color: var(--warn); }
+  .callout.info { background: var(--accent-soft); border-color: var(--accent); }
+  .callout .title {
+    font-weight: 700;
+    margin-bottom: 2mm;
+    display: flex;
+    align-items: center;
+    gap: 2mm;
+  }
+  .callout.ok .title { color: var(--ok); }
+  .callout.warn .title { color: var(--warn); }
+  .callout.info .title { color: var(--accent); }
+  .callout ul { margin-bottom: 0; }
+
+  /* ---- BADGES ---- */
+  .badge {
+    display: inline-block;
+    padding: 0.5mm 2mm;
+    border-radius: 2mm;
+    font-size: 8.5pt;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    vertical-align: middle;
+  }
+  .badge.rgaa { background: #eef2ff; color: #3730a3; }
+  .badge.wcag { background: #f0fdf4; color: #166534; }
+  .badge.rgesn { background: var(--primary-soft); color: var(--primary-ink); }
+  .badge.mv3 { background: var(--accent-soft); color: var(--accent); }
+  .badge.legal { background: #fdf4ff; color: #86198f; }
+  .badge.local { background: #fef3c7; color: var(--warn); }
+
+  /* ---- TABLES ---- */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3mm 0 5mm 0;
+    font-size: 9.5pt;
+    page-break-inside: auto;
+  }
+  table thead th {
+    background: var(--primary-ink);
+    color: white;
+    font-weight: 600;
+    text-align: left;
+    padding: 2.5mm 3mm;
+    font-size: 9pt;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  table thead th:first-child { border-top-left-radius: 2mm; }
+  table thead th:last-child { border-top-right-radius: 2mm; }
+  table tbody td {
+    padding: 2mm 3mm;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table tbody tr:nth-child(even) td { background: var(--bg-soft); }
+  table tbody tr { page-break-inside: avoid; }
+  table.compact tbody td { padding: 1.5mm 2.5mm; font-size: 9pt; }
+  table .num-cell { text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+  table .highlight { color: var(--primary); font-weight: 700; }
+
+  /* ---- KPI GRID ---- */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 3mm;
+    margin: 4mm 0;
+  }
+  .kpi {
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 2mm;
+    padding: 3.5mm;
+    text-align: center;
+    page-break-inside: avoid;
+  }
+  .kpi .num {
+    font-size: 20pt;
+    font-weight: 800;
+    color: var(--primary);
+    line-height: 1;
+    letter-spacing: -0.02em;
+  }
+  .kpi .lbl {
+    font-size: 8.5pt;
+    color: var(--muted);
+    margin-top: 1.5mm;
+    line-height: 1.3;
+  }
+
+  /* ---- FILE LIST ---- */
+  .files {
+    background: var(--bg-soft);
+    border-radius: 2mm;
+    padding: 3.5mm 5mm;
+    margin: 3mm 0;
+    font-size: 9.5pt;
+    border: 1px solid var(--line);
+  }
+  .files .file-item { display: flex; padding: 1mm 0; border-bottom: 1px dashed var(--line); }
+  .files .file-item:last-child { border-bottom: none; }
+  .files .file-item code { background: white; min-width: 55mm; margin-right: 4mm; }
+  .files .file-item .desc { color: var(--ink-soft); }
+
+  /* ---- CONCLUSION ---- */
+  .closing {
+    margin-top: 10mm;
+    padding: 8mm;
+    background: linear-gradient(135deg, var(--primary-ink), #115e59);
+    color: white;
+    border-radius: 3mm;
+    page-break-inside: avoid;
+  }
+  .closing h3 { color: white; font-size: 14pt; margin-bottom: 3mm; }
+  .closing ol { padding-left: 5mm; }
+  .closing li { margin-bottom: 2mm; }
+  .closing strong { color: #5eead4; }
+
+  .tag-inline { font-size: 9pt; color: var(--muted); }
+
+  hr.soft { border: none; border-top: 1px solid var(--line); margin: 6mm 0; }
+</style>
+</head>
+<body>
+
+<!-- ============== COVER ============== -->
+<section class="cover">
+  <div>
+    <div class="brand">
+      <div class="dot"></div>
+      <div>Numérique Responsable</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="kicker">Recap CoDir — Avril 2026</div>
+    <h1>Une extension Chrome<br/>qui audite l'accessibilité<br/>et l'écoconception.</h1>
+    <p class="lede">
+      Le seul outil sur le marché français qui combine <strong>RGAA 4.1</strong> et <strong>RGESN 2024</strong>
+      dans une même interface, avec crawl multi-pages et confidentialité 100 % locale.
+    </p>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="num">106</div>
+        <div class="lbl">critères RGAA<br/>couverts</div>
+      </div>
+      <div class="stat">
+        <div class="num">24</div>
+        <div class="lbl">règles RGESN<br/>automatisées</div>
+      </div>
+      <div class="stat">
+        <div class="num">100 %</div>
+        <div class="lbl">local, zéro<br/>télémétrie</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="meta">
+    <div>
+      <div><strong>Document interne</strong></div>
+      <div>Préparation présentation comité de direction</div>
+    </div>
+    <div class="right">
+      <div>William Laime</div>
+      <div>17 avril 2026</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== CONTENT ============== -->
+<div class="content">
+
+<section>
+  <h2><span class="num-badge">1</span>L'extension en 30 secondes</h2>
+
+  <p class="lede-section">
+    Extension Chrome <span class="badge mv3">Manifest V3</span> avec Side Panel qui audite un site web sur deux axes complémentaires :
+    la conformité <span class="badge rgaa">RGAA 4.1</span> <span class="badge wcag">WCAG 2.1 A/AA</span> et
+    l'écoconception <span class="badge rgesn">RGESN 2024</span>.
+  </p>
+
+  <div class="kpi-grid">
+    <div class="kpi"><div class="num">106</div><div class="lbl">critères RGAA sur 13 thématiques</div></div>
+    <div class="kpi"><div class="num">91</div><div class="lbl">checks automatiques</div></div>
+    <div class="kpi"><div class="num">24</div><div class="lbl">règles RGESN / 9 thématiques</div></div>
+    <div class="kpi"><div class="num">1 → N</div><div class="lbl">pages auditables (crawl sitemap)</div></div>
+  </div>
+
+  <p>
+    L'extension découvre les URLs du site via <code>sitemap.xml</code> + liens internes, puis orchestre un
+    <strong>pool de workers parallèles</strong> (1 à 8 onglets simultanés, limite 5/10/25/50 ou illimitée).
+    Les résultats sont filtrables par statut et thématique, triables selon trois vues (thématique / règle / page),
+    exportables en <strong>CSV</strong> et <strong>PDF</strong>, et sauvegardables localement avec un système de
+    <strong>jump-to-element</strong> qui surligne l'élément fautif directement sur la page auditée.
+  </p>
+
+  <h3>Architecture technique</h3>
+  <div class="files">
+    <div class="file-item"><code>manifest.json</code><div class="desc">MV3, permissions <code>activeTab</code>, <code>scripting</code>, <code>sidePanel</code>, <code>storage</code>, <code>unlimitedStorage</code></div></div>
+    <div class="file-item"><code>audit.js</code><div class="desc">1 430 lignes — moteur d'audit vanilla JS, 0 dépendance</div></div>
+    <div class="file-item"><code>sidepanel.js</code><div class="desc">1 450 lignes — UI, orchestration crawl, exports CSV / PDF</div></div>
+    <div class="file-item"><code>background.js</code><div class="desc">Service worker minimal (436 B)</div></div>
+    <div class="file-item"><code>highlight.js</code><div class="desc">Surlignage visuel temporaire sur la page auditée</div></div>
+    <div class="file-item"><code>tests/*.spec.js</code><div class="desc">Tests E2E Playwright (audit-engine, sidepanel-ui, eco-details)</div></div>
+  </div>
+</section>
+
+<section class="wide">
+  <h2><span class="num-badge">2</span>Ce que fait le moteur d'audit</h2>
+
+  <h3>2.1 Accessibilité — RGAA 4.1 (106 critères, 13 thématiques)</h3>
+  <table class="compact">
+    <thead>
+      <tr>
+        <th>Thème RGAA</th>
+        <th class="num-cell">Critères</th>
+        <th class="num-cell">Auto</th>
+        <th class="num-cell">Manuel</th>
+        <th>Ce qui est réellement testé</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>1 — Images</strong></td><td class="num-cell">9</td><td class="num-cell highlight">7</td><td class="num-cell">2</td><td><code>alt</code> manquant/vide, alt générique (regex), captcha, <code>&lt;figure&gt;</code>/<code>&lt;figcaption&gt;</code></td></tr>
+      <tr><td><strong>2 — Cadres</strong></td><td class="num-cell">2</td><td class="num-cell highlight">2</td><td class="num-cell">0</td><td><code>&lt;iframe&gt;</code> sans <code>title</code> pertinent</td></tr>
+      <tr><td><strong>3 — Couleurs</strong></td><td class="num-cell">3</td><td class="num-cell highlight">1</td><td class="num-cell">2</td><td>Calcul précis de contraste WCAG 2.0 — luminance sRGB, alpha-blending, remontée des fonds</td></tr>
+      <tr><td><strong>4 — Multimédia</strong></td><td class="num-cell">8</td><td class="num-cell highlight">6</td><td class="num-cell">2</td><td>Présence <code>&lt;track&gt;</code>, détection transcription par regex</td></tr>
+      <tr><td><strong>5 — Tableaux</strong></td><td class="num-cell">8</td><td class="num-cell highlight">5</td><td class="num-cell">3</td><td><code>&lt;caption&gt;</code>, <code>&lt;th&gt;</code>, <code>scope</code>, <code>headers</code>, <code>role=presentation</code></td></tr>
+      <tr><td><strong>6 — Liens</strong></td><td class="num-cell">2</td><td class="num-cell highlight">2</td><td class="num-cell">0</td><td>Algorithme WAI-ARIA 1.2 complet + détection textes génériques FR/EN</td></tr>
+      <tr><td><strong>7 — Scripts</strong></td><td class="num-cell">6</td><td class="num-cell highlight">2</td><td class="num-cell">4</td><td><code>onclick</code> sur non-natifs sans <code>tabindex</code>, détection <code>aria-live</code></td></tr>
+      <tr><td><strong>8 — Obligatoires</strong></td><td class="num-cell">10</td><td class="num-cell highlight">7</td><td class="num-cell">3</td><td>DOCTYPE, <code>lang</code> (regex BCP 47), <code>&lt;title&gt;</code>, <code>id</code> dupliqués</td></tr>
+      <tr><td><strong>9 — Structuration</strong></td><td class="num-cell">5</td><td class="num-cell highlight">4</td><td class="num-cell">1</td><td>Hiérarchie Hx, landmarks, pseudo-listes, <code>&lt;blockquote&gt;</code></td></tr>
+      <tr><td><strong>10 — Présentation</strong></td><td class="num-cell">8</td><td class="num-cell highlight">3</td><td class="num-cell">5</td><td>Viewport zoomable, <code>:focus{outline:none}</code> par parsing CSS</td></tr>
+      <tr><td><strong>11 — Formulaires</strong></td><td class="num-cell">13</td><td class="num-cell highlight">8</td><td class="num-cell">5</td><td><code>&lt;label&gt;</code>/<code>for</code>, <code>&lt;fieldset&gt;</code>/<code>&lt;legend&gt;</code>, <code>autocomplete</code></td></tr>
+      <tr><td><strong>12 — Navigation</strong></td><td class="num-cell">4</td><td class="num-cell highlight">2</td><td class="num-cell">2</td><td><code>&lt;nav&gt;</code>, <code>[role=search]</code>, liens « plan du site »</td></tr>
+      <tr><td><strong>13 — Consultation</strong></td><td class="num-cell">13</td><td class="num-cell highlight">9</td><td class="num-cell">4</td><td><code>meta refresh</code>, <code>target=_blank</code>, extensions fichiers, <code>&lt;marquee&gt;</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout info">
+    <div class="title">Techniques employées</div>
+    Sélecteurs DOM, regex, calculs math (contraste WCAG 2.0), parsing <code>document.styleSheets</code>.
+    <strong>Zéro dépendance externe</strong> — pas d'axe-core, pas de Lighthouse embarqué.
+    Les 52 critères marqués manuels sont prévus ainsi par le RGAA lui-même.
+  </div>
+
+  <h3>2.2 Écoconception — RGESN 2024 (24 règles, 9 thématiques)</h3>
+  <table class="compact">
+    <thead>
+      <tr>
+        <th>Thématique</th>
+        <th class="num-cell">Règles auto</th>
+        <th>Métriques (seuil critique / majeur)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Stratégie</strong></td><td class="num-cell highlight">2</td><td>localStorage &gt;512 Ko / &gt;102 Ko · domaines tiers &gt;10 / &gt;5</td></tr>
+      <tr><td><strong>Spécifications</strong></td><td class="num-cell highlight">1</td><td><code>meta viewport</code> absent · <code>user-scalable=no</code></td></tr>
+      <tr><td><strong>Architecture</strong></td><td class="num-cell highlight">1</td><td>Requêtes HTTP &gt;80 / &gt;40</td></tr>
+      <tr><td><strong>UX</strong></td><td class="num-cell highlight">1</td><td>Vidéos autoplay non-muted / muted</td></tr>
+      <tr><td><strong>Contenus</strong></td><td class="num-cell highlight">4</td><td>Poids page &gt;2 Mo / &gt;1 Mo · JPEG-PNG &gt;30 % · images oversized · preload vidéo</td></tr>
+      <tr><td><strong>Frontend</strong></td><td class="num-cell highlight">7</td><td>JS &gt;512 Ko · CSS &gt;205 Ko · fonts &gt;6 · DOM &gt;1500 nœuds · lazy-load · dimensions images · scripts bloquants</td></tr>
+      <tr><td><strong>Backend</strong></td><td class="num-cell highlight">1</td><td>TTFB &gt;1,5 s / &gt;600 ms</td></tr>
+      <tr><td><strong>Hébergement</strong></td><td class="num-cell highlight">2</td><td>Compression texte · ratio cache</td></tr>
+      <tr><td><strong>Algorithmie</strong></td><td class="num-cell">1</td><td>Manuel (NT)</td></tr>
+    </tbody>
+  </table>
+
+  <p class="tag-inline">Source brute : Performance API native (<code>getEntriesByType('resource'|'navigation')</code>) — aucun fetch réseau supplémentaire.</p>
+
+  <h3>2.3 Scoring</h3>
+  <p>
+    <strong>Score Tanaguru-like</strong> : <code>C / (C + NC) × 100</code>, NA et NT exclus. Seuils d'affichage : ≥ 75 vert, 50–74 orange, &lt; 50 rouge.
+    Agrégation multi-pages : <strong>pire statut par règle</strong> (NC &gt; NT &gt; C &gt; NA) — cohérent avec l'approche d'un référentiel officiel.
+  </p>
+</section>
+
+<section>
+  <h2><span class="num-badge">3</span>Stockage des audits — transparence données</h2>
+
+  <h3>Où ?</h3>
+  <p>
+    <span class="badge local">chrome.storage.local</span>
+    API native Chrome, clé <code>nrSavedAudits</code>. Migration automatique depuis l'ancien <code>localStorage</code>.
+    Permission <code>unlimitedStorage</code> pour ne pas buter sur le quota 5 Mo par défaut.
+  </p>
+
+  <h3>Quoi ?</h3>
+  <div class="files">
+    <div class="file-item"><code>id</code><div class="desc">identifiant unique + timestamp</div></div>
+    <div class="file-item"><code>name, date, hostname</code><div class="desc">métadonnées ISO 8601</div></div>
+    <div class="file-item"><code>mode, scope, pageLimit</code><div class="desc">paramètres d'audit</div></div>
+    <div class="file-item"><code>pagesResults</code><div class="desc">résultats allégés — samples limités à 3, outerHTML tronqués</div></div>
+    <div class="file-item"><code>auditedCount, failedUrls</code><div class="desc">statistiques de crawl</div></div>
+  </div>
+
+  <div class="callout ok">
+    <div class="title">Ce qu'il faut savoir pour le CoDir</div>
+    <ul>
+      <li><strong>100 % local</strong> — aucune donnée ne quitte le navigateur de l'utilisateur.</li>
+      <li>Pas de cloud, pas d'API tierce, <strong>pas de télémétrie</strong>.</li>
+      <li>Un utilisateur = un silo — pas de partage entre navigateurs / machines.</li>
+      <li>Export CSV / PDF (génération côté client) = seule voie pour partager un audit.</li>
+    </ul>
+  </div>
+
+  <div class="callout warn">
+    <div class="title">Point d'attention RGPD</div>
+    Le DOM capturé dans les samples peut contenir des données sensibles si on audite des pages internes authentifiées.
+    À clarifier dans la politique d'usage interne.
+  </div>
+</section>
+
+<section class="wide">
+  <h2><span class="num-badge">4</span>Points forts à défendre</h2>
+
+  <div class="callout ok">
+    <div class="title">Différenciants majeurs</div>
+    <ol>
+      <li><strong>Seul outil du marché à combiner RGAA + RGESN</strong> dans une même interface. Les concurrents traitent l'un OU l'autre.</li>
+      <li><strong>Référentiel français natif</strong> — pas une traduction approximative de WCAG, mais la terminologie RGAA 4.1 directement exploitable pour la déclaration d'accessibilité légale.</li>
+      <li><strong>Crawl multi-pages intégré</strong> — Lighthouse et axe DevTools fonctionnent 1 page à la fois, nous scannons N pages en parallèle avec découverte automatique.</li>
+      <li><strong>Calcul de contraste WCAG 2.0 propre</strong> — luminance sRGB, alpha-blending, remontée de la chaîne des fonds. Au niveau d'axe-core.</li>
+      <li><strong>Algorithme WAI-ARIA 1.2 complet</strong> pour le nom accessible (<code>aria-labelledby</code>, <code>aria-label</code>, <code>&lt;label for&gt;</code>, <code>alt</code>, <code>title</code>, contenu récursif).</li>
+      <li><strong>Confidentialité by design</strong> — 100 % local, argument fort en contexte bancaire / santé / secteur public.</li>
+      <li><strong>UX moderne</strong> — Side Panel MV3, jump-to-element, export PDF/CSV, historique des audits.</li>
+      <li><strong>Manifest V3</strong> — pérennité assurée (MV2 sera désactivé par Chrome).</li>
+    </ol>
+  </div>
+</section>
+
+<section class="wide">
+  <h2><span class="num-badge">5</span>Points à assumer en transparence</h2>
+
+  <h3>Qualité du code</h3>
+  <div class="callout warn">
+    <div class="title">Dette technique identifiée</div>
+    <ul>
+      <li><strong>Monolithes</strong> — <code>audit.js</code> (1 430 lignes) et <code>sidepanel.js</code> (1 450 lignes) non modularisés → testabilité unitaire limitée.</li>
+      <li><strong>Pas de CI/CD</strong> — aucun workflow GitHub Actions, aucune validation automatique.</li>
+      <li><strong>Commits peu explicites</strong> (« suite », « à continuer ») — traçabilité limitée.</li>
+      <li><strong>Aucun tag de version</strong>, pas de CHANGELOG.</li>
+    </ul>
+  </div>
+
+  <h3>Couverture fonctionnelle</h3>
+  <div class="callout warn">
+    <div class="title">Limites intrinsèques à assumer</div>
+    <ul>
+      <li><strong>Pas de tests clavier ni interaction réelle</strong> — limite commune à tous les outils statiques (axe, Lighthouse, Wave incluses).</li>
+      <li><strong>SPA partiellement couvertes</strong> — état au chargement capturé, pas post-interaction (modales, changements de route).</li>
+      <li><strong>Heuristiques regex</strong> sur quelques critères (alt générique, transcription, captcha) → faux positifs possibles.</li>
+      <li><strong>Dark mode CSS</strong> (<code>prefers-color-scheme</code>) non couvert pour le contraste.</li>
+      <li><strong>52 critères RGAA manuels</strong> — assumé par le référentiel. Aucun outil automatique ne couvre 100 %.</li>
+    </ul>
+  </div>
+
+  <h3>Écoconception — honnêteté scientifique</h3>
+  <div class="callout warn">
+    <div class="title">Périmètre RGESN</div>
+    <ul>
+      <li><strong>Pas de calcul d'empreinte carbone</strong> (contrairement à Website Carbon, Ecoindex). On mesure des indicateurs techniques, pas des grammes de CO₂.</li>
+      <li><strong>Seuils fixes</strong> — les valeurs (2 Mo, 1500 nœuds) viennent des bonnes pratiques RGESN mais ne tiennent pas compte du contexte applicatif.</li>
+      <li><strong>Visite 1 vs visite N</strong> — poids mesuré sans cache, donc on mesure le pire cas et non la moyenne utilisateur.</li>
+    </ul>
+  </div>
+
+  <h3>Roadmap naturelle à évoquer</h3>
+  <ol>
+    <li>Modularisation du moteur en plugins de règles testables unitairement.</li>
+    <li>CI GitHub Actions + couverture de code Istanbul.</li>
+    <li>Rapports comparatifs entre audits (<em>delta avant / après</em>).</li>
+    <li>Partage d'audits via lien ou export JSON (aujourd'hui silo par navigateur).</li>
+    <li>Intégration optionnelle d'un calcul CO₂ (Sustainable Web Design formula).</li>
+    <li>Mode audit authentifié / connecté pour pages internes.</li>
+  </ol>
+</section>
+
+<section class="wide">
+  <h2><span class="num-badge">6</span>Comparaison avec l'écosystème</h2>
+
+  <h3>6.1 Face à Lighthouse (Google, intégré Chrome DevTools)</h3>
+  <table>
+    <thead><tr><th>Critère</th><th>Numérique Responsable</th><th>Lighthouse</th></tr></thead>
+    <tbody>
+      <tr><td>Accessibilité</td><td><strong>106 critères RGAA 4.1</strong></td><td>~40 checks axe-core</td></tr>
+      <tr><td>Écoconception</td><td><strong>24 règles RGESN 2024</strong></td><td>Aucune</td></tr>
+      <tr><td>Perf / Web Vitals</td><td>Non (volontaire)</td><td>Oui, complet (LCP, CLS, INP, TBT)</td></tr>
+      <tr><td>SEO / Best Practices</td><td>Non</td><td>Oui</td></tr>
+      <tr><td>Crawl multi-pages</td><td><strong>Oui, natif</strong></td><td>Non (1 page)</td></tr>
+      <tr><td>Référentiel français</td><td><strong>Oui, natif</strong></td><td>Non</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Angle CoDir :</strong> complémentaire, pas concurrent. Lighthouse parle au dev (Web Vitals), nous parlons au RSE / DPO / responsable accessibilité (conformité légale).</p>
+
+  <h3>6.2 Face à Tanaguru / Asqatasun</h3>
+  <table>
+    <thead><tr><th>Critère</th><th>Numérique Responsable</th><th>Tanaguru Engine</th></tr></thead>
+    <tbody>
+      <tr><td>Référentiel</td><td>RGAA 4.1 + RGESN</td><td>RGAA 4.1 (référence marché)</td></tr>
+      <tr><td>Formule de score</td><td><strong>Tanaguru-like</strong></td><td>Tanaguru officiel</td></tr>
+      <tr><td>Déploiement</td><td><strong>Extension Chrome (1 clic)</strong></td><td>Serveur Java à héberger, CLI</td></tr>
+      <tr><td>Profondeur technique</td><td>91 critères auto</td><td>~200 tests internes, + fin</td></tr>
+      <tr><td>Public cible</td><td>Utilisateur métier</td><td>Auditeur / DSI technique</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Angle CoDir :</strong> Tanaguru reste la référence française profonde. Nous misons sur la simplicité d'usage et l'ajout de l'écoconception. On ne prétend pas remplacer un audit Tanaguru officiel pour une déclaration légale.</p>
+
+  <h3>6.3 Face à axe DevTools / Accessibility Insights</h3>
+  <table>
+    <thead><tr><th>Critère</th><th>Numérique Responsable</th><th>axe DevTools</th></tr></thead>
+    <tbody>
+      <tr><td>Terminologie</td><td>RGAA 4.1 français</td><td>WCAG 2.1 anglais</td></tr>
+      <tr><td>Moteur</td><td>Custom vanilla JS, 0 dépendance</td><td>axe-core (standard de facto)</td></tr>
+      <tr><td>Faux positifs</td><td>Heuristiques maison</td><td>Très faible (communauté active)</td></tr>
+      <tr><td>Écoconception</td><td><strong>Oui</strong></td><td>Non</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Angle CoDir :</strong> axe-core est la référence mondiale. On se différencie par la terminologie RGAA et le bundling RGESN. <em>Piste à creuser :</em> adosser notre moteur à axe-core en interne pour réduire les faux positifs, et garder notre couche RGAA/RGESN par-dessus.</p>
+
+  <h3>6.4 Face aux outils d'écoconception spécialisés</h3>
+  <table>
+    <thead><tr><th>Outil</th><th>Ce qu'il fait</th><th>Ce qu'il ne fait pas</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Ecoindex (GreenIT)</strong></td><td>Score A–G, estimation eau / CO₂ / GES</td><td>Pas d'accessibilité, RGESN non détaillé</td></tr>
+      <tr><td><strong>Website Carbon</strong></td><td>gCO₂ / visite, hébergement vert</td><td>Pas d'analyse technique</td></tr>
+      <tr><td><strong>GreenFrame</strong></td><td>Mesure réelle labo (CPU, GPU, réseau)</td><td>Complexe à mettre en œuvre</td></tr>
+      <tr><td><strong>Checklist DINUM</strong></td><td>79 critères RGESN officiels</td><td>Pas d'outil automatique</td></tr>
+      <tr><td><strong>Nous</strong></td><td>24 règles RGESN + 106 RGAA dans Chrome</td><td>Pas de calcul CO₂ chiffré</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Angle CoDir :</strong> l'écosystème RGESN officiel n'a <strong>pas d'outil d'audit automatique</strong> à ce jour (seulement une grille Excel). Choix pragmatique : couvrir les critères techniquement mesurables côté frontend/réseau. Les critères « Stratégie », « Spécifications » et « Algorithmie » restent majoritairement humains — c'est normal.</p>
+</section>
+
+<section>
+  <h2><span class="num-badge">7</span>Positionnement stratégique</h2>
+
+  <div class="callout info">
+    <div class="title">Messages clés pour le CoDir</div>
+    <ol>
+      <li><strong>Outil sans équivalent direct</strong> — extension légère qui combine RGAA + RGESN sur le marché français.</li>
+      <li><strong>Complémentaire</strong> aux outils existants, pas substitut. On facilite l'entrée de gamme : sensibilisation, pré-audit, suivi dans le temps.</li>
+      <li><strong>Confidentialité native</strong> <span class="badge local">100 % local</span> — argument fort en contexte bancaire, santé, secteur public.</li>
+      <li><strong>Alignement obligations légales</strong> <span class="badge legal">RGAA</span> <span class="badge legal">REEN</span> — loi du 11 février 2005 / article 47 pour le secteur public et grandes entreprises ; loi REEN 2021 en montée en charge.</li>
+      <li><strong>Clarification attendue du CoDir</strong> — positionnement (outil interne ? produit diffusable ? open source ?). Cela détermine la roadmap : CI/CD, modularisation, support utilisateurs.</li>
+    </ol>
+  </div>
+
+  <div class="closing">
+    <h3>Préparation de la présentation — 5 actions concrètes</h3>
+    <ol>
+      <li>Lancer l'extension sur le site corporate, exporter le PDF → <strong>visuel parlant</strong>.</li>
+      <li>Lancer Lighthouse sur le même site → montrer la <strong>complémentarité</strong>, pas le chevauchement.</li>
+      <li>Préparer 2–3 slides chiffrées : <em>« X critères RGAA couverts », « Y Mo détectés », « Z % conformité »</em>.</li>
+      <li>Anticiper la question RGPD → réponse <strong>stockage local + roadmap export/partage</strong>.</li>
+      <li>Anticiper la question roadmap/budget → <strong>3 chantiers</strong> : modularisation + CI/CD + calcul CO₂.</li>
+    </ol>
+  </div>
+</section>
+
+</div>
+
+</body>
+</html>
