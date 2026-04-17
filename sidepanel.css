@@ -421,10 +421,54 @@ body {
   margin-top: 1px;
 }
 
-.issue-badge.critique { background: var(--color-critical-bg); color: var(--color-critical); }
-.issue-badge.majeur { background: var(--color-major-bg); color: var(--color-major); }
-.issue-badge.mineur { background: var(--color-minor-bg); color: var(--color-minor); }
+.issue-badge.critique, .issue-badge.sev-critique { background: var(--color-critical-bg); color: var(--color-critical); }
+.issue-badge.majeur, .issue-badge.sev-majeur   { background: var(--color-major-bg); color: var(--color-major); }
+.issue-badge.mineur, .issue-badge.sev-mineur   { background: var(--color-minor-bg); color: var(--color-minor); }
 .issue-badge.ok { background: var(--color-success-bg); color: var(--color-success); }
+
+/* Badges statut RGAA : C / NC / NA / NT */
+.issue-badge.status-NC { background: var(--color-critical-bg); color: var(--color-critical); }
+.issue-badge.status-NT { background: var(--color-major-bg); color: var(--color-major); }
+.issue-badge.status-C  { background: var(--color-success-bg); color: var(--color-success); }
+.issue-badge.status-NA { background: var(--color-minor-bg); color: var(--color-minor); }
+
+.issue.status-NC { border-left-color: var(--color-critical); }
+.issue.status-NT { border-left-color: var(--color-major); }
+.issue.status-C  { border-left-color: var(--color-success); background: var(--color-surface); }
+.issue.status-NA { border-left-color: var(--color-minor); opacity: 0.82; }
+
+.issue-ref-link {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.issue-ref-link:hover { text-decoration: underline; }
+
+.issue-manual {
+  background: var(--color-major-bg);
+  color: var(--color-major);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.mini-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.mini-badge.status-NC { background: var(--color-critical-bg); color: var(--color-critical); }
+.mini-badge.status-NT { background: var(--color-major-bg); color: var(--color-major); }
+.mini-badge.status-C  { background: var(--color-success-bg); color: var(--color-success); }
+.mini-badge.status-NA { background: var(--color-minor-bg); color: var(--color-minor); }
 
 .issue-title {
   flex: 1;
@@ -788,6 +832,132 @@ body {
 .theme-chip.all.active {
   background: var(--color-accent);
   color: white;
+}
+
+/* ========== STATUS FILTERS (C / NC / NA / NT) ========== */
+.status-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.status-chip {
+  padding: 4px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-chip .chip-count {
+  font-size: 10px;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.status-chip.NC { color: var(--color-critical); border-color: color-mix(in srgb, var(--color-critical) 30%, var(--color-border)); }
+.status-chip.NT { color: var(--color-major);    border-color: color-mix(in srgb, var(--color-major) 30%, var(--color-border)); }
+.status-chip.C  { color: var(--color-success);  border-color: color-mix(in srgb, var(--color-success) 30%, var(--color-border)); }
+.status-chip.NA { color: var(--color-minor); }
+
+.status-chip.NC.active { background: var(--color-critical-bg); border-color: var(--color-critical); }
+.status-chip.NT.active { background: var(--color-major-bg);    border-color: var(--color-major); }
+.status-chip.C.active  { background: var(--color-success-bg);  border-color: var(--color-success); }
+.status-chip.NA.active { background: var(--color-minor-bg);    border-color: var(--color-minor); }
+
+.status-chip:not(.active) {
+  opacity: 0.55;
+}
+
+/* ========== SCORE BREAKDOWN PILLS ========== */
+.score-card .status-breakdown {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 10px;
+}
+
+.status-pill {
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 10px;
+}
+.status-pill.NC { background: var(--color-critical-bg); color: var(--color-critical); }
+.status-pill.NT { background: var(--color-major-bg);    color: var(--color-major); }
+.status-pill.C  { background: var(--color-success-bg);  color: var(--color-success); }
+.status-pill.NA { background: var(--color-minor-bg);    color: var(--color-minor); }
+
+/* ========== THEME SECTION (vue Par thématique) ========== */
+.theme-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.theme-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.theme-section-header .toggle {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  transition: transform 0.15s;
+}
+
+.theme-section-title {
+  flex: 1;
+  color: var(--color-text);
+}
+
+.theme-section-dist {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.theme-stat {
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.theme-stat.NC { background: var(--color-critical-bg); color: var(--color-critical); }
+.theme-stat.NT { background: var(--color-major-bg);    color: var(--color-major); }
+.theme-stat.C  { background: var(--color-success-bg);  color: var(--color-success); }
+.theme-stat.NA { background: var(--color-minor-bg);    color: var(--color-minor); }
+
+.theme-section-body {
+  display: none;
+  padding: 10px;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-section.expanded .theme-section-body {
+  display: flex;
 }
 
 /* ========== PAGE VIEW ========== */
@@ -1253,4 +1423,124 @@ body {
 }
 .nr-toast[data-tone="error"] {
   background: var(--color-error, #c0392b);
+}
+
+/* Légende des statuts (repliable) */
+.status-legend {
+  margin-bottom: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.status-legend > summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  user-select: none;
+  list-style: none;
+}
+.status-legend > summary::-webkit-details-marker { display: none; }
+.status-legend > summary::after {
+  content: '▸';
+  float: right;
+  transition: transform 0.15s;
+}
+.status-legend[open] > summary::after { transform: rotate(90deg); }
+.status-legend > summary:hover { color: var(--color-text); }
+
+.legend-body {
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.legend-body li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.legend-body strong { font-weight: 600; margin-right: 4px; }
+.legend-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 4px;
+  margin-top: 1px;
+}
+.legend-badge.status-C  { background: var(--color-success-bg); color: var(--color-success); }
+.legend-badge.status-NC { background: var(--color-critical-bg); color: var(--color-critical); }
+.legend-badge.status-NA { background: var(--color-minor-bg); color: var(--color-minor); }
+.legend-badge.status-NT { background: var(--color-major-bg); color: var(--color-major); }
+.legend-body code {
+  background: var(--color-bg);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+/* Issue details dropdown */
+.issue-details-toggle {
+  margin-top: 6px;
+}
+.issue-details-toggle summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.issue-details-toggle summary::-webkit-details-marker { display: none; }
+.issue-details-toggle summary::before {
+  content: '▶';
+  font-size: 0.6rem;
+  transition: transform 0.15s;
+}
+.issue-details-toggle[open] summary::before { transform: rotate(90deg); }
+
+/* Issue details list */
+.issue-details {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  font-size: 0.78rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.issue-details li {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--color-border);
+  gap: 8px;
+}
+.detail-label {
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.detail-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  white-space: nowrap;
 }

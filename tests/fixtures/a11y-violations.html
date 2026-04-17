@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<!--
+  Cette page concentre des violations RGAA ciblées par ID de règle.
+  Chaque bloc indique la règle qu'il déclenche en NC.
+  NE PAS ajouter <html lang="..."> : on teste obl-8.3-lang (NC).
+-->
+<head>
+  <meta charset="UTF-8">
+  <title>Document</title>
+  <!-- obl-8.6-title-relevant : title générique "Document" → NC -->
+  <meta name="viewport" content="width=device-width, user-scalable=no">
+  <!-- pre-10.4-zoom : user-scalable=no → NC -->
+  <style>
+    body { font-family: sans-serif; color: #aaa; background: #fff; }
+    /* col-3.2 : #aaa sur #fff ratio ~2.3:1 → NC */
+    :focus { outline: none; }
+    /* pre-10.7-focus-visible : outline:none sur :focus sans :focus-visible → NC */
+  </style>
+</head>
+<body>
+
+  <!-- str-9.1-headings : aucun <h1> à ce stade + sauts niveau (h3 après rien) -->
+  <h3>Titre sans h1 préalable</h3>
+  <h2>Un h2 après un h3</h2>
+
+  <!-- img-1.1-alt-missing : 2 <img> sans alt → NC, count=2 -->
+  <img src="a.jpg">
+  <img src="b.jpg">
+
+  <!-- img-1.9-figure-legend : figure sans figcaption → NC -->
+  <figure><img src="c.jpg" alt="chat"></figure>
+
+  <!-- frame-2.1-title : iframe sans title → NC -->
+  <iframe src="about:blank"></iframe>
+
+  <!-- obl-8.2-valid : id dupliqué → NC -->
+  <div id="dup"></div>
+  <div id="dup"></div>
+
+  <!-- frm-11.1-label : input sans label ni aria-label → NC -->
+  <form>
+    <input type="text" name="firstname">
+    <!-- frm-11.13-autofill : input[type=email] sans autocomplete → NC -->
+    <input type="email" name="email">
+    <!-- frm-11.9-button-name : bouton sans nom accessible → NC -->
+    <button type="submit"></button>
+  </form>
+
+  <!-- frm-11.5-fieldset + frm-11.6-legend : 2 radios same name hors fieldset → NC sur 11.5 -->
+  <form>
+    <input type="radio" name="choice" value="a"> a
+    <input type="radio" name="choice" value="b"> b
+  </form>
+
+  <!-- frm-11.5 : fieldset sans legend → NC sur 11.6 -->
+  <form>
+    <fieldset>
+      <input type="checkbox" name="opt" value="x"> X
+      <input type="checkbox" name="opt" value="y"> Y
+    </fieldset>
+  </form>
+
+  <!-- lnk-6.1-name : lien vide → NC -->
+  <a href="/x"></a>
+
+  <!-- nav-12.6-main & nav-12.4-landmarks : pas de <main> → NC -->
+  <!-- (on n'ajoute pas de <main> délibérément) -->
+
+  <!-- tab-5.6-headers : table sans <th> → NC (si la règle le détecte) -->
+  <table>
+    <tr><td>Cellule 1</td><td>Cellule 2</td></tr>
+    <tr><td>A</td><td>B</td></tr>
+  </table>
+
+</body>
+</html>

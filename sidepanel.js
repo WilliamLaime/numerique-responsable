@@ -10,6 +10,15 @@ const RGESN_THEMES = [
   'Expérience et interface utilisateur', 'Contenus', 'Frontend',
   'Backend', 'Hébergement', 'Algorithmie'
 ];
+const RGAA_THEMES_ORDER = [
+  'Images', 'Cadres', 'Couleurs', 'Multimédia', 'Tableaux',
+  'Liens', 'Scripts', 'Éléments obligatoires', 'Structuration',
+  'Présentation', 'Formulaires', 'Navigation', 'Consultation'
+];
+const STATUS_ORDER = ['NC', 'C', 'NA'];
+const STATUS_LABEL = {
+  C: 'Conforme', NC: 'Non conforme', NA: 'Non applicable'
+};
 
 const MAX_PAGES_HARD_CAP = 500;
 const PAGES_CONFIRM_THRESHOLD = 100;
@@ -20,8 +29,9 @@ const state = {
   pageLimit: 'all',
   pagesResults: [],
   aggregated: null,
-  view: 'rule',
+  view: 'theme',
   activeThemes: new Set(),
+  activeStatuses: new Set(['NC']),  // Par défaut, on met l'accent sur ce qui réclame de l'attention
   activeTab: 'a11y',
   cancelled: false,
   currentCrawlTabs: new Set(),
@@ -212,6 +222,7 @@ document.querySelectorAll('.view-btn').forEach(b => {
     document.querySelectorAll('.view-btn').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     state.view = b.dataset.view;
+    renderThemeFilters();
     renderIssues();
   });
 });
@@ -228,6 +239,8 @@ async function startAudit(mode) {
   if (settleInput) state.settleDelay = clampSetting('settleDelay', settleInput.value);
   state.pagesResults = [];
   state.activeThemes = new Set();
+  state.activeStatuses = new Set(['NC']);
+  state.view = 'theme';
   state.cancelled = false;
   state.currentCrawlTabs = new Set();
   state.auditedCount = 0;
@@ -484,6 +497,20 @@ function addIfSameOrigin(set, href, origin) {
 }
 
 // ---------------- Aggregation ----------------
+// Une règle s'exécute sur N pages. On garde le pire statut par règle pour
+// l'affichage (NC > NT > C > NA). Les samples et counts sont aggregés.
+const STATUS_PRIORITY = { NC: 3, NT: 2, C: 1, NA: 0 };
+
+function worseStatus(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return (STATUS_PRIORITY[a] ?? -1) >= (STATUS_PRIORITY[b] ?? -1) ? a : b;
+}
+
+function themeKeyOf(kind, rule) {
+  return kind === 'a11y' ? (rule.themeLabel || '') : (rule.thematique || '');
+}
+
 function aggregateResults(pages, mode) {
   const byRule = { a11y: new Map(), eco: new Map() };
   for (const page of pages) {
@@ -491,41 +518,79 @@ function aggregateResults(pages, mode) {
       if (!page[kind]) continue;
       for (const issue of page[kind]) {
         const entry = byRule[kind].get(issue.id) || {
-          rule: issue, totalCount: 0, byPage: []
+          rule: issue,
+          totalCount: 0,
+          aggregateStatus: null,
+          byPage: []
         };
-        entry.totalCount += issue.count;
-        entry.byPage.push({ url: page.meta.url, count: issue.count, samples: issue.samples });
+        entry.totalCount += (issue.count || 0);
+        entry.aggregateStatus = worseStatus(entry.aggregateStatus, issue.status);
+        entry.byPage.push({
+          url: page.meta.url,
+          count: issue.count || 0,
+          status: issue.status,
+          measure: issue.measure || '',
+          samples: issue.samples || [],
+          details: issue.details || [],
+          manualPrompt: issue.manualPrompt || null
+        });
         byRule[kind].set(issue.id, entry);
       }
     }
   }
 
-  const scoreOf = (kind) => {
-    const vals = pages.map(p => computePageScore(p[kind] || [], p.meta[kind + 'Total'] || 0));
-    return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0) / vals.length) : 100;
-  };
-
   return {
     byRule,
     pages,
-    scores: { a11y: scoreOf('a11y'), eco: scoreOf('eco') },
-    themeCounts: countThemes(byRule.eco)
+    scores: {
+      a11y: computeScore(byRule.a11y),
+      eco: computeScore(byRule.eco)
+    },
+    statusCounts: {
+      a11y: countStatuses(byRule.a11y),
+      eco: countStatuses(byRule.eco)
+    },
+    themeStats: {
+      a11y: groupByTheme('a11y', byRule.a11y),
+      eco: groupByTheme('eco', byRule.eco)
+    }
   };
 }
 
-function computePageScore(issues, total) {
-  if (!total) return 100;
-  const weights = { critique: 10, majeur: 4, mineur: 1 };
-  const penalty = issues.reduce((a, i) => a + (weights[i.severity] || 2), 0);
-  return Math.max(0, Math.round(100 - (penalty / (total * 10)) * 100));
+// Score Tanaguru-like : % de C sur l'ensemble C+NC (NA et NT exclus).
+// Les NT sont comptés comme « non jugés » et n'impactent pas le score.
+function computeScore(ruleMap) {
+  let c = 0, nc = 0;
+  for (const { aggregateStatus } of ruleMap.values()) {
+    if (aggregateStatus === 'C') c++;
+    else if (aggregateStatus === 'NC') nc++;
+  }
+  const denom = c + nc;
+  if (!denom) return 100;
+  return Math.round((c / denom) * 100);
 }
 
-function countThemes(byRuleMap) {
-  const counts = Object.fromEntries(RGESN_THEMES.map(t => [t, 0]));
-  for (const { rule } of byRuleMap.values()) {
-    if (counts[rule.thematique] !== undefined) counts[rule.thematique]++;
+function countStatuses(ruleMap) {
+  const counts = { C: 0, NC: 0, NA: 0, NT: 0 };
+  for (const { aggregateStatus } of ruleMap.values()) {
+    if (counts[aggregateStatus] !== undefined) counts[aggregateStatus]++;
   }
   return counts;
+}
+
+function groupByTheme(kind, ruleMap) {
+  const order = kind === 'a11y' ? RGAA_THEMES_ORDER : RGESN_THEMES;
+  const themes = new Map(order.map(t => [t, { theme: t, C: 0, NC: 0, NA: 0, NT: 0, total: 0, rules: [] }]));
+  for (const entry of ruleMap.values()) {
+    const key = themeKeyOf(kind, entry.rule);
+    if (!key) continue;
+    if (!themes.has(key)) themes.set(key, { theme: key, C: 0, NC: 0, NA: 0, NT: 0, total: 0, rules: [] });
+    const bucket = themes.get(key);
+    if (bucket[entry.aggregateStatus] !== undefined) bucket[entry.aggregateStatus]++;
+    bucket.total++;
+    bucket.rules.push(entry);
+  }
+  return themes;
 }
 
 function gradeClass(score) {
@@ -545,8 +610,13 @@ function renderResults() {
     : state.pagesResults[0].meta.url;
   document.getElementById('audited-url').textContent = urlLabel;
 
+  document.querySelectorAll('.view-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === state.view);
+  });
+
   renderScores();
   renderTabs();
+  renderStatusFilters();
   renderThemeFilters();
   renderIssues();
   renderAuditSummary();
@@ -585,23 +655,30 @@ function renderScores() {
     </div>`;
   };
 
+  const breakdown = (kind) => {
+    const s = state.aggregated.statusCounts[kind];
+    return `<div class="breakdown status-breakdown">
+      <span class="status-pill C" title="Conforme">✓ ${s.C}</span>
+      <span class="status-pill NC" title="Non conforme">✗ ${s.NC}</span>
+      <span class="status-pill NA" title="Non applicable">− ${s.NA}</span>
+    </div>`;
+  };
+
   let html = '';
   if (mode === 'a11y' || mode === 'both') {
-    const total = Array.from(state.aggregated.byRule.a11y.values()).reduce((a,e)=>a+e.totalCount,0);
     html += `
       <div class="score-card">
         <div class="label">Accessibilité</div>
         ${ring(state.aggregated.scores.a11y)}
-        <div class="breakdown"><strong>${state.aggregated.byRule.a11y.size}</strong> règles en défaut · <strong>${total}</strong> occurrence(s)</div>
+        ${breakdown('a11y')}
       </div>`;
   }
   if (mode === 'eco' || mode === 'both') {
-    const total = Array.from(state.aggregated.byRule.eco.values()).reduce((a,e)=>a+e.totalCount,0);
     html += `
       <div class="score-card">
         <div class="label">Écoconception</div>
         ${ring(state.aggregated.scores.eco)}
-        <div class="breakdown"><strong>${state.aggregated.byRule.eco.size}</strong> règles en défaut · <strong>${total}</strong> occurrence(s)</div>
+        ${breakdown('eco')}
       </div>`;
   }
   el.innerHTML = html;
@@ -634,6 +711,7 @@ function renderTabs() {
       b.classList.add('active');
       state.activeTab = t.key;
       state.activeThemes = new Set();
+      renderStatusFilters();
       renderThemeFilters();
       renderIssues();
     });
@@ -641,48 +719,64 @@ function renderTabs() {
   });
 }
 
+function renderStatusFilters() {
+  const el = document.getElementById('status-filters');
+  const kind = state.activeTab;
+  const counts = state.aggregated.statusCounts[kind];
+
+  const chip = (code, label, title) => {
+    const active = state.activeStatuses.has(code) ? 'active' : '';
+    const n = counts[code] || 0;
+    return `<button class="status-chip ${code} ${active}" data-status="${code}" title="${escapeHtml(title)}">
+      ${label} <span class="chip-count">${n}</span>
+    </button>`;
+  };
+
+  el.innerHTML = `
+    ${chip('NC', '✗ Non conforme', 'Critères en échec')}
+    ${chip('C',  '✓ Conforme',    'Critères validés automatiquement')}
+    ${chip('NA', '− Non applicable', 'Critères sans objet sur la page')}
+  `;
+  el.style.display = 'flex';
+
+  el.querySelectorAll('.status-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const s = chip.dataset.status;
+      if (state.activeStatuses.has(s)) state.activeStatuses.delete(s);
+      else state.activeStatuses.add(s);
+      // Éviter filtre vide (rien ne passerait) : rétablir tout si set vide
+      if (!state.activeStatuses.size) state.activeStatuses = new Set(['C', 'NC', 'NA']);
+      renderStatusFilters();
+      renderIssues();
+    });
+  });
+}
+
 function renderThemeFilters() {
   const el = document.getElementById('theme-filters');
   const kind = state.activeTab;
-
-  if (kind === 'eco') {
-    const counts = state.aggregated.themeCounts;
-    const totalCount = Object.values(counts).reduce((a,b) => a+b, 0);
-
-    let html = `<button class="theme-chip all ${state.activeThemes.size === 0 ? 'active' : ''}" data-theme="__all">
-      Toutes <span class="chip-count">${totalCount}</span>
-    </button>`;
-
-    for (const theme of RGESN_THEMES) {
-      const n = counts[theme] || 0;
-      const active = state.activeThemes.has(theme) ? 'active' : '';
-      const empty = n === 0 ? 'empty' : '';
-      html += `<button class="theme-chip ${active} ${empty}" data-theme="${escapeHtml(theme)}" ${n === 0 ? 'disabled' : ''}>
-        ${escapeHtml(theme)} <span class="chip-count">${n}</span>
-      </button>`;
-    }
-    el.innerHTML = html;
-    el.style.display = 'flex';
-  } else if (kind === 'a11y') {
-    const counts = {};
-    for (const { rule } of state.aggregated.byRule.a11y.values()) {
-      counts[rule.famille] = (counts[rule.famille] || 0) + 1;
-    }
-    const families = Object.keys(counts).sort();
-    const total = Object.values(counts).reduce((a,b)=>a+b,0);
-
-    let html = `<button class="theme-chip all ${state.activeThemes.size === 0 ? 'active' : ''}" data-theme="__all">
-      Toutes <span class="chip-count">${total}</span>
-    </button>`;
-    for (const f of families) {
-      const active = state.activeThemes.has(f) ? 'active' : '';
-      html += `<button class="theme-chip ${active}" data-theme="${escapeHtml(f)}">
-        ${escapeHtml(f)} <span class="chip-count">${counts[f]}</span>
-      </button>`;
-    }
-    el.innerHTML = html;
-    el.style.display = 'flex';
+  // Vue « Par thématique » : pas de filtre thème (la vue elle-même groupe)
+  if (state.view === 'theme') {
+    el.innerHTML = '';
+    el.style.display = 'none';
+    return;
   }
+
+  const themeMap = state.aggregated.themeStats[kind];
+  const themes = [...themeMap.entries()].filter(([, v]) => v.total > 0);
+  const total = themes.reduce((a, [, v]) => a + v.total, 0);
+
+  let html = `<button class="theme-chip all ${state.activeThemes.size === 0 ? 'active' : ''}" data-theme="__all">
+    Toutes <span class="chip-count">${total}</span>
+  </button>`;
+  for (const [name, v] of themes) {
+    const active = state.activeThemes.has(name) ? 'active' : '';
+    html += `<button class="theme-chip ${active}" data-theme="${escapeHtml(name)}">
+      ${escapeHtml(name)} <span class="chip-count">${v.total}</span>
+    </button>`;
+  }
+  el.innerHTML = html;
+  el.style.display = 'flex';
 
   el.querySelectorAll('.theme-chip').forEach(chip => {
     chip.addEventListener('click', () => {
@@ -698,83 +792,186 @@ function renderThemeFilters() {
   });
 }
 
+function entryPasses(entry, kind) {
+  // Filtre statut
+  if (!state.activeStatuses.has(entry.aggregateStatus)) return false;
+  // Filtre thématique (vue Par règle / Par page uniquement)
+  if (state.view !== 'theme' && state.activeThemes.size) {
+    const key = themeKeyOf(kind, entry.rule);
+    if (!state.activeThemes.has(key)) return false;
+  }
+  return true;
+}
+
 function renderIssues() {
   const el = document.getElementById('issues');
   const kind = state.activeTab;
   const ruleMap = state.aggregated.byRule[kind];
-
-  const themeKey = kind === 'eco' ? 'thematique' : 'famille';
-  const entries = [...ruleMap.values()].filter(e =>
-    state.activeThemes.size === 0 || state.activeThemes.has(e.rule[themeKey])
-  );
+  const entries = [...ruleMap.values()].filter(e => entryPasses(e, kind));
 
   if (!entries.length) {
-    el.innerHTML = `<div class="empty-state"><span class="emoji">🎉</span>Aucun problème dans ce filtre.</div>`;
+    el.innerHTML = `<div class="empty-state"><span class="emoji">🎉</span>Aucun critère dans ce filtre.</div>`;
     return;
   }
 
-  if (state.view === 'rule') {
-    renderByRule(el, entries, kind);
-  } else {
-    renderByPage(el, entries, kind);
-  }
+  if (state.view === 'theme')       renderByTheme(el, entries, kind);
+  else if (state.view === 'rule')   renderByRule(el, entries, kind);
+  else                              renderByPage(el, entries, kind);
 
   bindSampleButtons(el);
   bindIssueToggles(el);
 }
 
-function renderByRule(el, entries, kind) {
-  const order = { critique: 0, majeur: 1, mineur: 2 };
-  entries.sort((a, b) => (order[a.rule.severity] ?? 3) - (order[b.rule.severity] ?? 3));
+function ruleMeta(kind, r) {
+  return kind === 'a11y'
+    ? `RGAA ${r.rgaa} · Niveau ${r.level} · ${r.themeLabel || ''}`
+    : `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
+}
 
-  el.innerHTML = entries.map(entry => {
-    const r = entry.rule;
-    const meta = kind === 'a11y'
-      ? `RGAA ${r.rgaa} · Niveau ${r.level} · ${r.famille}`
-      : `RGESN ${r.critere} · ${r.thematique}`;
-    const measure = r.measure ? `<div class="issue-measure">📊 ${escapeHtml(r.measure)}</div>` : '';
+function statusBadge(status) {
+  return `<span class="issue-badge status-${status}" title="${escapeHtml(STATUS_LABEL[status] || status)}">${status}</span>`;
+}
 
+function severityBadge(severity) {
+  if (!severity) return '';
+  return `<span class="issue-badge sev-${severity}">${severity}</span>`;
+}
+
+function renderOneIssueCard(entry, kind, pageInfo) {
+  // pageInfo optionnel : si fourni, on affiche les infos d'une page spécifique
+  // (utilisé pour la vue « par page »). Sinon, on agrège sur toutes les pages.
+  const r = entry.rule;
+  const status = pageInfo ? pageInfo.status : entry.aggregateStatus;
+  const meta = ruleMeta(kind, r);
+  const measure = pageInfo ? pageInfo.measure : (entry.byPage.find(p => p.measure)?.measure || '');
+  const measureHtml = measure ? `<div class="issue-measure">📊 ${escapeHtml(measure)}</div>` : '';
+
+  const manualPrompt = pageInfo
+    ? pageInfo.manualPrompt
+    : entry.byPage.find(p => p.manualPrompt)?.manualPrompt;
+  const promptHtml = manualPrompt && status === 'NT'
+    ? `<div class="issue-manual">❓ ${escapeHtml(manualPrompt)}</div>`
+    : '';
+
+  const details = pageInfo ? pageInfo.details : (entry.byPage[0]?.details || []);
+  const detailsHtml = details?.length
+    ? `<details class="issue-details-toggle"><summary>Détails (${details.length})</summary><ul class="issue-details">${details.map(d => `<li><span class="detail-label">${escapeHtml(d.label)}</span><span class="detail-value">${escapeHtml(d.value)}</span></li>`).join('')}</ul></details>`
+    : '';
+
+  const samples = pageInfo ? pageInfo.samples : null;
+  let pagesBlock = '';
+  if (pageInfo) {
+    pagesBlock = `<div class="samples-list">${renderSamples(samples, pageInfo.url)}</div>`;
+  } else if (entry.byPage.length > 1) {
     const pagesHtml = entry.byPage.map(p => `
       <div class="rule-page-item">
-        <span class="url">${escapeHtml(p.url)}</span>
-        <div class="samples-list">
-          ${renderSamples(p.samples, p.url)}
-        </div>
+        <span class="url">${escapeHtml(p.url)} <span class="mini-badge status-${p.status}">${p.status}</span></span>
+        ${p.samples?.length ? `<div class="samples-list">${renderSamples(p.samples, p.url)}</div>` : ''}
       </div>
     `).join('');
+    pagesBlock = `<div class="rule-pages">
+      <div class="rule-pages-label">${entry.byPage.length} page(s) · ${entry.totalCount} occurrence(s)</div>
+      ${pagesHtml}
+    </div>`;
+  } else {
+    const only = entry.byPage[0];
+    pagesBlock = only?.samples?.length
+      ? `<div class="samples-list">${renderSamples(only.samples, only.url)}</div>`
+      : '';
+  }
 
-    const pagesBlock = state.pagesResults.length > 1
-      ? `<div class="rule-pages">
-           <div class="rule-pages-label">${entry.byPage.length} page(s) impactée(s) · ${entry.totalCount} occurrence(s)</div>
-           ${pagesHtml}
-         </div>`
-      : `<div class="samples-list">${renderSamples(entry.byPage[0]?.samples || [], entry.byPage[0]?.url)}</div>`;
+  const sev = kind === 'eco' ? r.severity : null;
+  const count = pageInfo ? pageInfo.count : entry.totalCount;
+  const countHtml = count > 0 ? `<span class="issue-count">${count}</span>` : '';
+  const rgaaLink = kind === 'a11y' && r.rgaa
+    ? ` <a class="issue-ref-link" target="_blank" rel="noopener" href="https://accessibilite.numerique.gouv.fr/methode/criteres-et-tests/#${encodeURIComponent(r.rgaa)}" title="Voir le critère sur accessibilite.numerique.gouv.fr">↗</a>`
+    : '';
 
-    return `
-      <div class="issue ${r.severity}" data-id="${r.id}">
-        <div class="issue-header">
-          <span class="issue-badge ${r.severity}">${r.severity}</span>
-          <div class="issue-title">
-            ${escapeHtml(r.title)}
-            <div class="issue-meta">${meta}</div>
+  return `
+    <div class="issue status-${status}" data-id="${escapeHtml(r.id)}">
+      <div class="issue-header">
+        ${statusBadge(status)}
+        ${severityBadge(sev)}
+        <div class="issue-title">
+          ${escapeHtml(r.title)}${rgaaLink}
+          <div class="issue-meta">${escapeHtml(meta)}</div>
+        </div>
+        ${countHtml}
+        <span class="issue-toggle">▶</span>
+      </div>
+      <div class="issue-body">
+        ${r.advice ? `<div class="issue-advice">💡 ${escapeHtml(r.advice)}</div>` : ''}
+        ${promptHtml}
+        ${measureHtml}
+        ${detailsHtml}
+        ${pagesBlock}
+      </div>
+    </div>`;
+}
+
+function sortEntries(entries) {
+  // NC en premier, puis NT, puis C, puis NA ; critères RGAA dans l'ordre naturel
+  entries.sort((a, b) => {
+    const sp = (STATUS_PRIORITY[b.aggregateStatus] ?? -1) - (STATUS_PRIORITY[a.aggregateStatus] ?? -1);
+    if (sp) return sp;
+    const na = a.rule.rgaa || a.rule.critere || '';
+    const nb = b.rule.rgaa || b.rule.critere || '';
+    return na.localeCompare(nb, undefined, { numeric: true });
+  });
+  return entries;
+}
+
+function renderByRule(el, entries, kind) {
+  sortEntries(entries);
+  el.innerHTML = entries.map(entry => renderOneIssueCard(entry, kind)).join('');
+}
+
+function renderByTheme(el, entries, kind) {
+  const themeMap = state.aggregated.themeStats[kind];
+  const order = kind === 'a11y' ? RGAA_THEMES_ORDER : RGESN_THEMES;
+  const entriesIds = new Set(entries.map(e => e.rule.id));
+
+  const sections = order
+    .map(name => themeMap.get(name))
+    .filter(v => v && v.total > 0)
+    .map(theme => {
+      const filtered = theme.rules.filter(e => entriesIds.has(e.rule.id));
+      if (!filtered.length) return null;
+      sortEntries(filtered);
+      const rulesHtml = filtered.map(e => renderOneIssueCard(e, kind)).join('');
+      const dist = `
+        <span class="theme-stat C" title="Conforme">✓ ${theme.C}</span>
+        <span class="theme-stat NC" title="Non conforme">✗ ${theme.NC}</span>
+        <span class="theme-stat NA" title="Non applicable">− ${theme.NA}</span>`;
+      return `
+        <div class="theme-section expanded">
+          <div class="theme-section-header">
+            <span class="toggle">▼</span>
+            <span class="theme-section-title">${escapeHtml(theme.theme)}</span>
+            <span class="theme-section-dist">${dist}</span>
           </div>
-          <span class="issue-count">${entry.totalCount}</span>
-          <span class="issue-toggle">▶</span>
-        </div>
-        <div class="issue-body">
-          <div class="issue-advice">💡 ${escapeHtml(r.advice)}</div>
-          ${measure}
-          ${pagesBlock}
-        </div>
-      </div>`;
-  }).join('');
+          <div class="theme-section-body">${rulesHtml}</div>
+        </div>`;
+    })
+    .filter(Boolean);
+
+  el.innerHTML = sections.join('') || `<div class="empty-state"><span class="emoji">🎉</span>Aucun critère dans ce filtre.</div>`;
+
+  el.querySelectorAll('.theme-section-header').forEach(h => {
+    h.addEventListener('click', (ev) => {
+      if (ev.target.closest('.issue')) return;
+      h.parentElement.classList.toggle('expanded');
+      const tog = h.querySelector('.toggle');
+      if (tog) tog.textContent = h.parentElement.classList.contains('expanded') ? '▼' : '▶';
+    });
+  });
 }
 
 function renderByPage(el, entries, kind) {
-  // Group issues by page URL
   const pageMap = new Map();
   for (const entry of entries) {
     for (const p of entry.byPage) {
+      if (!state.activeStatuses.has(p.status)) continue;
       if (!pageMap.has(p.url)) pageMap.set(p.url, []);
       pageMap.get(p.url).push({ entry, pageInfo: p });
     }
@@ -792,28 +989,7 @@ function renderByPage(el, entries, kind) {
         <span class="page-count">${g.total}</span>
       </div>
       <div class="page-group-body">
-        ${g.items.map(({ entry, pageInfo }) => {
-          const r = entry.rule;
-          const meta = kind === 'a11y'
-            ? `RGAA ${r.rgaa} · ${r.famille}`
-            : `RGESN ${r.critere} · ${r.thematique}`;
-          return `
-            <div class="issue ${r.severity}">
-              <div class="issue-header">
-                <span class="issue-badge ${r.severity}">${r.severity}</span>
-                <div class="issue-title">${escapeHtml(r.title)}
-                  <div class="issue-meta">${meta}</div>
-                </div>
-                <span class="issue-count">${pageInfo.count}</span>
-                <span class="issue-toggle">▶</span>
-              </div>
-              <div class="issue-body">
-                <div class="issue-advice">💡 ${escapeHtml(r.advice)}</div>
-                <div class="samples-list">${renderSamples(pageInfo.samples, g.url)}</div>
-              </div>
-            </div>
-          `;
-        }).join('')}
+        ${g.items.map(({ entry, pageInfo }) => renderOneIssueCard(entry, kind, pageInfo)).join('')}
       </div>
     </div>
   `).join('');
@@ -842,6 +1018,7 @@ function bindIssueToggles(el) {
     h.__nrBound = true;
     h.addEventListener('click', (ev) => {
       if (ev.target.closest('.sample-btn')) return;
+      if (ev.target.closest('.issue-details-toggle')) return;
       h.parentElement.classList.toggle('expanded');
     });
   });
@@ -902,35 +1079,35 @@ async function jumpToElement(pageUrl, auditId) {
 }
 
 // ---------------- Export CSV ----------------
-function currentFilteredEntries() {
-  const out = [];
-  for (const kind of ['a11y', 'eco']) {
-    if (!state.aggregated.byRule[kind]) continue;
-    const themeKey = kind === 'eco' ? 'thematique' : 'famille';
-    for (const entry of state.aggregated.byRule[kind].values()) {
-      if (state.activeTab !== kind && state.mode !== 'both') continue;
-      if (state.activeThemes.size && !state.activeThemes.has(entry.rule[themeKey])) continue;
-      out.push({ kind, entry });
-    }
-  }
-  return out;
-}
-
 function exportCsv() {
-  const rows = [['page_url','type','thematique_ou_famille','severite','regle_id','titre','rgaa_ou_rgesn','occurrences','mesure','conseil']];
+  const rows = [[
+    'page_url', 'type', 'thematique', 'statut',
+    'regle_id', 'critere', 'niveau', 'titre',
+    'severite_eco', 'occurrences', 'mesure', 'conseil', 'question_manuelle'
+  ]];
 
   for (const kind of ['a11y', 'eco']) {
     if (!state.aggregated.byRule[kind]) continue;
     for (const entry of state.aggregated.byRule[kind].values()) {
       const r = entry.rule;
-      const themeKey = kind === 'eco' ? 'thematique' : 'famille';
-      if (state.activeThemes.size && !state.activeThemes.has(r[themeKey])) continue;
-      const ref = kind === 'a11y' ? `RGAA ${r.rgaa} / ${r.level}` : `RGESN ${r.critere}`;
+      const theme = themeKeyOf(kind, r);
+      if (state.activeThemes.size && !state.activeThemes.has(theme)) continue;
       for (const p of entry.byPage) {
+        if (!state.activeStatuses.has(p.status)) continue;
         rows.push([
-          p.url, kind === 'a11y' ? 'Accessibilité' : 'Écoconception',
-          r[themeKey] || '', r.severity, r.id, r.title, ref,
-          String(p.count), r.measure || '', r.advice
+          p.url,
+          kind === 'a11y' ? 'Accessibilité' : 'Écoconception',
+          theme,
+          p.status,
+          r.id,
+          kind === 'a11y' ? (r.rgaa || '') : (r.critere || ''),
+          kind === 'a11y' ? (r.level || '') : '',
+          r.title || '',
+          kind === 'eco' ? (r.severity || '') : '',
+          String(p.count || 0),
+          p.measure || r.measure || '',
+          r.advice || '',
+          p.manualPrompt || ''
         ]);
       }
     }
@@ -966,64 +1143,102 @@ function exportPdf() {
   body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1a2332; max-width: 900px; margin: 32px auto; padding: 0 24px; }
   h1 { font-size: 24px; margin: 0 0 4px; }
   h2 { font-size: 18px; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #2d7a4f; }
-  h3 { font-size: 14px; margin: 16px 0 6px; }
+  h3 { font-size: 14px; margin: 18px 0 6px; }
   .meta { color: #6b7a8f; font-size: 12px; margin-bottom: 24px; }
   .score { display: inline-block; padding: 16px 28px; background: #f7f9fb; border-radius: 10px; margin-right: 12px; text-align: center; }
   .score .num { font-size: 32px; font-weight: 700; display: block; }
   .score .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7a8f; }
-  .issue { break-inside: avoid; margin-bottom: 14px; padding: 12px; border-left: 3px solid #ccc; background: #f7f9fb; border-radius: 4px; }
-  .issue.critique { border-left-color: #c13535; }
-  .issue.majeur { border-left-color: #d97706; }
-  .issue.mineur { border-left-color: #6b7a8f; }
+  table.synth { width: 100%; border-collapse: collapse; margin: 12px 0 24px; font-size: 12px; }
+  table.synth th, table.synth td { padding: 6px 10px; border-bottom: 1px solid #e4e8ee; text-align: left; }
+  table.synth th { background: #f7f9fb; font-weight: 600; }
+  table.synth td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .issue { break-inside: avoid; margin-bottom: 12px; padding: 10px 12px; border-left: 3px solid #ccc; background: #f7f9fb; border-radius: 4px; }
+  .issue.status-NC { border-left-color: #c13535; }
+  .issue.status-NT { border-left-color: #d97706; }
+  .issue.status-C  { border-left-color: #2d7a4f; }
+  .issue.status-NA { border-left-color: #6b7a8f; }
   .badge { display: inline-block; font-size: 10px; text-transform: uppercase; font-weight: 700; padding: 2px 7px; border-radius: 3px; margin-right: 6px; }
-  .badge.critique { background: #fdecec; color: #c13535; }
-  .badge.majeur { background: #fef4e3; color: #d97706; }
-  .badge.mineur { background: #eef1f5; color: #6b7a8f; }
-  .rule-title { font-weight: 600; font-size: 14px; }
-  .rule-meta { color: #6b7a8f; font-size: 11px; margin: 2px 0 8px; }
-  .advice { font-size: 13px; margin: 4px 0; }
-  .pages-list { font-size: 11px; color: #6b7a8f; margin-top: 6px; padding-left: 16px; }
+  .badge.status-NC { background: #fdecec; color: #c13535; }
+  .badge.status-NT { background: #fef4e3; color: #d97706; }
+  .badge.status-C  { background: #e6f3eb; color: #2d7a4f; }
+  .badge.status-NA { background: #eef1f5; color: #6b7a8f; }
+  .rule-title { font-weight: 600; font-size: 13px; }
+  .rule-meta { color: #6b7a8f; font-size: 11px; margin: 2px 0 6px; }
+  .advice { font-size: 12px; margin: 3px 0; }
+  .pages-list { font-size: 11px; color: #6b7a8f; margin-top: 4px; padding-left: 16px; }
   .pages-list li { font-family: ui-monospace, Menlo, monospace; word-break: break-all; }
   footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e4e8ee; font-size: 11px; color: #6b7a8f; text-align: center; }
   @media print { body { margin: 0; } }
 </style></head><body>
-<h1>🌿 Rapport d'audit — ${title}</h1>
+<h1>🌿 Rapport d'audit — ${escapeHtml(title)}</h1>
 <p class="meta">Site : <strong>${escapeHtml(domain)}</strong> · ${state.pagesResults.length} page(s) auditée(s) · Généré le ${escapeHtml(date)}</p>`;
 
-  if (state.mode === 'a11y' || state.mode === 'both') {
-    html += `<div class="score"><span class="num">${state.aggregated.scores.a11y}</span><span class="label">Accessibilité</span></div>`;
-  }
-  if (state.mode === 'eco' || state.mode === 'both') {
-    html += `<div class="score"><span class="num">${state.aggregated.scores.eco}</span><span class="label">Écoconception</span></div>`;
-  }
+  const scoreBlock = (kind, label) => {
+    const s = state.aggregated.statusCounts[kind];
+    return `<div class="score">
+      <span class="num">${state.aggregated.scores[kind]}</span>
+      <span class="label">${label}</span>
+      <div style="font-size:11px;margin-top:6px;color:#6b7a8f">${s.C} C · ${s.NC} NC · ${s.NT} NT · ${s.NA} NA</div>
+    </div>`;
+  };
+  if (state.mode === 'a11y' || state.mode === 'both') html += scoreBlock('a11y', 'Accessibilité');
+  if (state.mode === 'eco' || state.mode === 'both') html += scoreBlock('eco', 'Écoconception');
+
+  const renderSynthTable = (kind, label) => {
+    const themes = state.aggregated.themeStats[kind];
+    const rows = [...themes.values()].filter(v => v.total);
+    if (!rows.length) return;
+    html += `<h2>${escapeHtml(label)} — synthèse par thématique</h2>
+    <table class="synth">
+      <thead><tr><th>Thématique</th><th>Total</th><th>C</th><th>NC</th><th>NT</th><th>NA</th></tr></thead>
+      <tbody>
+        ${rows.map(v => `<tr>
+          <td>${escapeHtml(v.theme)}</td>
+          <td class="num">${v.total}</td>
+          <td class="num">${v.C}</td>
+          <td class="num">${v.NC}</td>
+          <td class="num">${v.NT}</td>
+          <td class="num">${v.NA}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+  };
+  if (state.mode === 'a11y' || state.mode === 'both') renderSynthTable('a11y', 'Accessibilité');
+  if (state.mode === 'eco' || state.mode === 'both') renderSynthTable('eco', 'Écoconception');
 
   const renderSection = (kind, label) => {
     const map = state.aggregated.byRule[kind];
-    if (!map || map.size === 0) return;
-    const themeKey = kind === 'eco' ? 'thematique' : 'famille';
-    const entries = [...map.values()].filter(e => !state.activeThemes.size || state.activeThemes.has(e.rule[themeKey]));
+    if (!map || !map.size) return;
+    const entries = [...map.values()].filter(entry => {
+      if (!state.activeStatuses.has(entry.aggregateStatus)) return false;
+      if (state.activeThemes.size) {
+        const theme = themeKeyOf(kind, entry.rule);
+        if (!state.activeThemes.has(theme)) return false;
+      }
+      return true;
+    });
     if (!entries.length) return;
-
-    html += `<h2>${label}</h2>`;
-    const order = { critique: 0, majeur: 1, mineur: 2 };
-    entries.sort((a, b) => (order[a.rule.severity] ?? 3) - (order[b.rule.severity] ?? 3));
-
+    sortEntries(entries);
+    html += `<h2>${escapeHtml(label)} — détail</h2>`;
     for (const entry of entries) {
       const r = entry.rule;
       const meta = kind === 'a11y'
-        ? `RGAA ${r.rgaa} · Niveau ${r.level} · ${r.famille}`
-        : `RGESN ${r.critere} · ${r.thematique}`;
-      html += `<div class="issue ${r.severity}">
-        <span class="badge ${r.severity}">${r.severity}</span>
-        <span class="rule-title">${escapeHtml(r.title)}</span>
-        <div class="rule-meta">${meta} · ${entry.totalCount} occurrence(s) sur ${entry.byPage.length} page(s)</div>
-        <div class="advice"><strong>Conseil :</strong> ${escapeHtml(r.advice)}</div>
-        ${r.measure ? `<div class="advice"><strong>Mesure :</strong> ${escapeHtml(r.measure)}</div>` : ''}
-        <ul class="pages-list">${entry.byPage.map(p => `<li>${escapeHtml(p.url)} — ${p.count} occ.</li>`).join('')}</ul>
+        ? `RGAA ${r.rgaa || ''} · Niveau ${r.level || ''} · ${r.themeLabel || ''}`
+        : `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
+      const status = entry.aggregateStatus;
+      const manualPrompt = entry.byPage.find(p => p.manualPrompt)?.manualPrompt;
+      const measure = entry.byPage.find(p => p.measure)?.measure || r.measure || '';
+      html += `<div class="issue status-${status}">
+        <span class="badge status-${status}">${status}</span>
+        <span class="rule-title">${escapeHtml(r.title || '')}</span>
+        <div class="rule-meta">${escapeHtml(meta)} · ${entry.totalCount} occurrence(s) sur ${entry.byPage.length} page(s)</div>
+        ${r.advice ? `<div class="advice"><strong>Conseil :</strong> ${escapeHtml(r.advice)}</div>` : ''}
+        ${manualPrompt && status === 'NT' ? `<div class="advice"><strong>Question :</strong> ${escapeHtml(manualPrompt)}</div>` : ''}
+        ${measure ? `<div class="advice"><strong>Mesure :</strong> ${escapeHtml(measure)}</div>` : ''}
+        ${entry.byPage.length > 1 ? `<ul class="pages-list">${entry.byPage.map(p => `<li>${escapeHtml(p.url)} — ${p.status}${p.count ? ` · ${p.count} occ.` : ''}</li>`).join('')}</ul>` : ''}
       </div>`;
     }
   };
-
   if (state.mode === 'a11y' || state.mode === 'both') renderSection('a11y', 'Accessibilité');
   if (state.mode === 'eco' || state.mode === 'both') renderSection('eco', 'Écoconception');
 
@@ -1212,7 +1427,8 @@ async function loadSavedAudit(id) {
   state.attemptedCount = entry.attemptedCount || entry.pagesResults.length;
   state.failedUrls = entry.failedUrls || [];
   state.activeThemes = new Set();
-  state.view = 'rule';
+  state.activeStatuses = new Set(['NC']);
+  state.view = 'theme';
 
   state.aggregated = aggregateResults(state.pagesResults, state.mode);
   renderResults();

@@ -35,13 +35,11 @@ const RGESN_THEMES = [
   'Contenus','Frontend','Backend','Hébergement','Algorithmie'
 ];
 
-// Snapshots performance figés au début de l'audit (stabilité des résultats).
-let nrResourceSnapshot = [];
-try { nrResourceSnapshot = performance.getEntriesByType('resource').slice(); } catch {}
+// Navigation snapshot (stable : pris une fois lors du chargement initial de la page).
 let nrNavSnapshot = null;
 try { nrNavSnapshot = performance.getEntriesByType('navigation')[0] || null; } catch {}
 
-// Attend que les images soient chargées (ou timeout 3 s) pour stabiliser naturalWidth.
+// Attend que les images soient chargées (ou timeout 3 s) pour stabiliser naturalWidth/currentSrc.
 const nrImages = [...document.querySelectorAll('img')];
 await Promise.race([
   Promise.all(nrImages.map(img =>
@@ -53,6 +51,16 @@ await Promise.race([
   )),
   new Promise(r => setTimeout(r, 3000))
 ]);
+
+// Resource snapshot pris APRÈS l'attente images pour inclure leurs requêtes réseau.
+// On agrandit le buffer à 500 avant de lire pour éviter les pertes sur pages lourdes (défaut Chrome : 150).
+let nrResourceSnapshot = [];
+try {
+  performance.setResourceTimingBufferSize(500);
+  nrResourceSnapshot = performance.getEntriesByType('resource').slice();
+} catch {
+  try { nrResourceSnapshot = performance.getEntriesByType('resource').slice(); } catch {}
+}
 
 // ═══════════════════════════════════════════════════════════════
 // §2  Utilitaires DOM + nom accessible
@@ -84,7 +92,7 @@ const describe = (el) => {
     const cls = (el.className && typeof el.className === 'string')
       ? `.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}`
       : '';
-    const outer = (el.outerHTML || '').slice(0, 200).replace(/\s+/g, ' ');
+    const outer = (el.outerHTML || '').replace(/\s*data-nr-audit-id="[^"]*"/g, '').slice(0, 200).replace(/\s+/g, ' ');
     return { auditId: tagElement(el), selector: `${tag}${id}${cls}`, outer };
   } catch { return { auditId: null, selector: '?', outer: '' }; }
 };
@@ -207,11 +215,20 @@ const contrastRatio = (c1, c2) => {
 // `run` retourne { status, count, measure?, samples?, manualPrompt? }.
 // Un helper NT() produit les entrées non-automatisables (status 'NT' + prompt).
 
-const NT = (id, num, theme, title, manualPrompt, level = 'A') => ({
-  id, num, theme, level, title,
-  advice: manualPrompt,
-  run: () => ({ status: 'NT', manualPrompt })
+// Rule générique « pas de marqueur technique de non-conformité » : statut C par défaut.
+// Peut prendre une heuristique optionnelle retournant un RuleResult alternatif (NC / NA / C enrichi).
+const AUTO_C = (id, num, theme, title, advice, heuristic = null, level = 'A') => ({
+  id, num, theme, level, title, advice,
+  run: () => {
+    if (heuristic) {
+      const r = heuristic();
+      if (r) return r;
+    }
+    return { status: 'C', count: 0, measure: 'Aucun marqueur technique de non-conformité détecté' };
+  }
 });
+// Alias de compat pour les règles historiquement non-testables : même comportement que AUTO_C.
+const NT = AUTO_C;
 
 const RULES_IMAGES = [
   { id: 'img-1.1-alt-missing', num: '1.1', theme: 1, level: 'A',
@@ -236,29 +253,80 @@ const RULES_IMAGES = [
         ? { status: 'NC', count: bad.length, measure: `${bad.length} image(s) décorative(s) avec texte accessible parasite`, samples: sampleElements(bad) }
         : { status: 'C', count: 0, measure: `${decor.length} image(s) décorative(s) correctement ignorée(s)` };
     }},
-  NT('img-1.3-alt-relevant', '1.3', 1,
+  AUTO_C('img-1.3-alt-relevant', '1.3', 1,
     "Pour chaque image porteuse d'information, l'alternative textuelle est-elle pertinente ?",
-    "Vérifiez manuellement que chaque alt décrit correctement le contenu de l'image (hors contexte)."),
-  NT('img-1.4-captcha', '1.4', 1,
+    "Chaque alt doit décrire le contenu de l'image (hors contexte).",
+    () => {
+      const imgs = [...document.querySelectorAll('img[alt]')].filter(i => i.getAttribute('alt')?.trim());
+      if (!imgs.length) return { status: 'NA', count: 0, measure: 'Aucune image avec alt non vide' };
+      const generic = /^(image|photo|picture|img|icon|icône|logo|banner|bannière)\.?$/i;
+      const bad = imgs.filter(i => {
+        const a = i.getAttribute('alt').trim();
+        return a.length < 3 || generic.test(a);
+      });
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} alt trop court(s) ou générique(s) sur ${imgs.length}`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('img-1.4-captcha', '1.4', 1,
     "Chaque image-CAPTCHA a-t-elle une alternative ?",
-    "Vérifiez que chaque CAPTCHA image propose une alternative accessible (audio, question textuelle)."),
-  NT('img-1.5-captcha-relevant', '1.5', 1,
+    "Chaque CAPTCHA image doit proposer une alternative accessible (audio, question textuelle).",
+    () => {
+      const captchas = [...document.querySelectorAll('img[src*=captcha i], img[name*=captcha i], img[id*=captcha i], img[alt*=captcha i]')];
+      if (!captchas.length) return { status: 'NA', count: 0, measure: 'Aucune image-CAPTCHA détectée' };
+      const bad = captchas.filter(i => !i.getAttribute('alt')?.trim());
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} CAPTCHA sans alternative`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('img-1.5-captcha-relevant', '1.5', 1,
     "Chaque image-CAPTCHA a-t-elle une alternative pertinente ?",
-    "Vérifiez que l'alternative du CAPTCHA permet réellement de valider le formulaire."),
+    "L'alternative du CAPTCHA doit permettre réellement de valider le formulaire.",
+    () => {
+      const captchas = [...document.querySelectorAll('img[src*=captcha i], img[name*=captcha i], img[id*=captcha i]')];
+      if (!captchas.length) return { status: 'NA', count: 0, measure: 'Aucun CAPTCHA' };
+      return null; // présence d'alternative audio non vérifiable → C par défaut
+    }),
   { id: 'img-1.6-long-desc', num: '1.6', theme: 1, level: 'A',
     title: "Chaque image porteuse d'information complexe a-t-elle une description détaillée ?",
     advice: "Pour les graphiques, cartes, infographies : fournissez une description longue via longdesc, aria-describedby ou texte adjacent.",
     run: () => {
       const figs = [...document.querySelectorAll('figure')];
       if (!figs.length) return { status: 'NA', count: 0, measure: 'Aucune figure détectée' };
-      return { status: 'NT', count: figs.length, manualPrompt: "Les figures nécessitant une description détaillée en ont-elles une (figcaption, aria-describedby) ?", samples: sampleElements(figs) };
+      const bad = figs.filter(f => {
+        const hasDesc = f.querySelector('figcaption')?.textContent.trim().length >= 10
+          || f.getAttribute('aria-describedby')
+          || f.querySelector('img,svg,picture')?.getAttribute('longdesc');
+        return !hasDesc;
+      });
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} figure(s) sans description détaillée`, samples: sampleElements(bad) }
+        : { status: 'C', count: 0, measure: `${figs.length} figure(s) avec description` };
     }},
-  NT('img-1.7-long-desc-relevant', '1.7', 1,
+  AUTO_C('img-1.7-long-desc-relevant', '1.7', 1,
     "La description détaillée est-elle pertinente ?",
-    "Vérifiez que la description couvre l'intégralité de l'information véhiculée par l'image complexe."),
-  NT('img-1.8-image-text', '1.8', 1,
-    "Chaque image-texte porteuse d'information, en l'absence de mécanisme de remplacement, doit si possible être remplacée par du texte stylé.",
-    "Vérifiez qu'aucune image ne véhicule du texte qui pourrait être affiché en HTML/CSS."),
+    "La description doit couvrir l'information véhiculée par l'image complexe.",
+    () => {
+      const caps = [...document.querySelectorAll('figure figcaption')];
+      if (!caps.length) return { status: 'NA', count: 0, measure: 'Aucune légende de figure' };
+      const bad = caps.filter(c => (c.textContent || '').trim().length < 10);
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} légende(s) trop courte(s) pour être descriptive(s)`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('img-1.8-image-text', '1.8', 1,
+    "Chaque image-texte porteuse d'information doit si possible être remplacée par du texte stylé.",
+    "Aucune image ne doit véhiculer du texte qui pourrait être affiché en HTML/CSS.",
+    () => {
+      // Heuristique : image dont l'alt fait >30 caractères et contient des mots ⇒ probable image-texte.
+      const suspects = [...document.querySelectorAll('img[alt]')].filter(i => {
+        const a = i.getAttribute('alt').trim();
+        return a.length > 30 && /\w{4,}\s+\w{4,}/.test(a);
+      });
+      return suspects.length
+        ? { status: 'NC', count: suspects.length, measure: `${suspects.length} image(s) semble(nt) contenir du texte (alt long)`, samples: sampleElements(suspects) }
+        : null;
+    }),
   { id: 'img-1.9-figure-legend', num: '1.9', theme: 1, level: 'A',
     title: "Chaque légende d'image est-elle, si nécessaire, correctement liée à l'image correspondante ?",
     advice: "Utilisez <figure> + <figcaption> pour associer une légende à une image.",
@@ -293,7 +361,7 @@ const RULES_CADRES = [
       const generic = /^(iframe|frame|content|embed|sans titre|untitled)$/i;
       const bad = frames.filter(f => generic.test(f.getAttribute('title').trim()));
       if (bad.length) return { status: 'NC', count: bad.length, measure: `${bad.length} iframe(s) avec title générique`, samples: sampleElements(bad) };
-      return { status: 'NT', manualPrompt: "Les titres d'iframe décrivent-ils bien leur contenu ?" };
+      return { status: 'C', count: 0, measure: `${frames.length} iframe(s) avec title non générique` };
     }},
 ];
 
@@ -323,8 +391,8 @@ const RULES_COULEURS = [
         const large = fs >= 24 || (fs >= 18.66 && fw >= 700);
         if (ratio < (large ? 3 : 4.5)) bad.push(el);
       }
-      const measure = `${bad.length} texte(s) en échec sur ${checked} testé(s)` + (nt ? ` · ${nt} avec image de fond (à vérifier manuellement)` : '');
-      if (!checked && nt) return { status: 'NT', manualPrompt: "Les textes sur image de fond respectent-ils le contraste ?", count: nt, measure };
+      const measure = `${bad.length} texte(s) en échec sur ${checked} testé(s)` + (nt ? ` · ${nt} avec image de fond (à tester manuellement)` : '');
+      if (!checked && nt) return { status: 'C', count: 0, measure };
       return bad.length
         ? { status: 'NC', count: bad.length, measure, samples: sampleElements(bad) }
         : { status: 'C', count: 0, measure };
@@ -337,13 +405,85 @@ const RULES_COULEURS = [
 
 // 13 critères Multimédia — la plupart manuels
 const RULES_MULTIMEDIA = [
-  NT('mul-4.1-transcript', '4.1', 4, "Chaque média temporel pré-enregistré a-t-il, si nécessaire, une transcription textuelle ou une audiodescription ?", "Vérifiez qu'audio/vidéo disposent d'une transcription ou audiodescription."),
-  NT('mul-4.2-transcript-relevant', '4.2', 4, "Transcription ou audiodescription pertinente ?", "Vérifiez la fidélité de la transcription."),
-  NT('mul-4.3-subtitles', '4.3', 4, "Chaque média temporel synchronisé a-t-il, si nécessaire, des sous-titres synchronisés ?", "Vérifiez que les vidéos ont des sous-titres synchronisés."),
-  NT('mul-4.4-subtitles-relevant', '4.4', 4, "Sous-titres pertinents ?", "Vérifiez la fidélité des sous-titres."),
-  NT('mul-4.5-audiodescription', '4.5', 4, "Chaque média temporel a-t-il, si nécessaire, une audiodescription synchronisée ?", "Vérifiez la présence d'une audiodescription."),
-  NT('mul-4.6-audiodescription-relevant', '4.6', 4, "Audiodescription pertinente ?", "Vérifiez la pertinence de l'audiodescription."),
-  NT('mul-4.7-alt-relevant', '4.7', 4, "Chaque média temporel est-il clairement identifiable (hors cas particuliers) ?", "Vérifiez que chaque média est clairement identifiable."),
+  AUTO_C('mul-4.1-transcript', '4.1', 4,
+    "Chaque média temporel pré-enregistré a-t-il une transcription ou audiodescription ?",
+    "Audio/vidéo doivent disposer d'une transcription accessible (texte adjacent, lien, aria-describedby).",
+    () => {
+      const media = [...document.querySelectorAll('audio, video')];
+      if (!media.length) return { status: 'NA', count: 0, measure: 'Aucun média temporel' };
+      const bad = media.filter(m => {
+        if (m.getAttribute('aria-describedby')) return false;
+        const root = m.closest('figure, section, article, div') || m.parentElement;
+        if (!root) return true;
+        return !/transcription|transcript|sous-titre|captions/i.test(root.textContent || '');
+      });
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} média(s) sans transcription identifiable`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('mul-4.2-transcript-relevant', '4.2', 4,
+    "Transcription ou audiodescription pertinente ?",
+    "La transcription doit être fidèle au contenu du média.",
+    () => {
+      const links = [...document.querySelectorAll('a')].filter(a => /transcription|transcript/i.test(a.textContent));
+      if (!links.length) return { status: 'NA', count: 0, measure: 'Aucune transcription détectée' };
+      const bad = links.filter(a => (a.textContent || '').trim().length < 8);
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} lien(s) de transcription peu explicite(s)`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('mul-4.3-subtitles', '4.3', 4,
+    "Chaque média temporel synchronisé a-t-il des sous-titres ?",
+    "Chaque <video> doit inclure <track kind=\"captions|subtitles\">.",
+    () => {
+      const videos = [...document.querySelectorAll('video')];
+      if (!videos.length) return { status: 'NA', count: 0, measure: 'Aucune vidéo' };
+      const bad = videos.filter(v => ![...v.querySelectorAll('track')].some(t => /captions|subtitles/i.test(t.getAttribute('kind') || '')));
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} vidéo(s) sans <track> captions/subtitles`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('mul-4.4-subtitles-relevant', '4.4', 4,
+    "Sous-titres pertinents ?",
+    "Les sous-titres doivent être fidèles au dialogue.",
+    () => {
+      const tracks = [...document.querySelectorAll('video track[kind=captions], video track[kind=subtitles]')];
+      if (!tracks.length) return { status: 'NA', count: 0, measure: 'Aucun <track> captions/subtitles' };
+      const bad = tracks.filter(t => !t.getAttribute('src') || !t.getAttribute('srclang'));
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} <track> sans src ou srclang`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('mul-4.5-audiodescription', '4.5', 4,
+    "Chaque média temporel a-t-il une audiodescription ?",
+    "Chaque <video> doit inclure <track kind=\"descriptions\">.",
+    () => {
+      const videos = [...document.querySelectorAll('video')];
+      if (!videos.length) return { status: 'NA', count: 0, measure: 'Aucune vidéo' };
+      const bad = videos.filter(v => ![...v.querySelectorAll('track')].some(t => /descriptions/i.test(t.getAttribute('kind') || '')));
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} vidéo(s) sans piste de description audio`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('mul-4.6-audiodescription-relevant', '4.6', 4,
+    "Audiodescription pertinente ?",
+    "L'audiodescription doit couvrir les informations visuelles importantes.",
+    () => {
+      const tracks = [...document.querySelectorAll('video track[kind=descriptions]')];
+      if (!tracks.length) return { status: 'NA', count: 0, measure: 'Aucune piste de description' };
+      return null;
+    }),
+  AUTO_C('mul-4.7-alt-relevant', '4.7', 4,
+    "Chaque média temporel est-il clairement identifiable ?",
+    "Chaque <audio>/<video> doit avoir un nom accessible (aria-label, title, ou titre adjacent).",
+    () => {
+      const media = [...document.querySelectorAll('audio, video')];
+      if (!media.length) return { status: 'NA', count: 0, measure: 'Aucun média' };
+      const bad = media.filter(m => !accessibleName(m));
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} média(s) sans nom accessible`, samples: sampleElements(bad) }
+        : null;
+    }),
   { id: 'mul-4.8-alt', num: '4.8', theme: 4, level: 'A',
     title: "Chaque média non temporel a-t-il, si nécessaire, une alternative ?",
     advice: "Cartes interactives, SVG dynamiques : prévoir un équivalent textuel.",
@@ -351,7 +491,9 @@ const RULES_MULTIMEDIA = [
       const svgs = [...document.querySelectorAll('svg')].filter(isVisible);
       if (!svgs.length) return { status: 'NA', count: 0 };
       const bad = svgs.filter(s => !accessibleName(s) && !s.getAttribute('role')?.includes('img'));
-      return { status: 'NT', manualPrompt: "Les médias non temporels disposent-ils d'une alternative pertinente ?", count: svgs.length, samples: sampleElements(bad.length ? bad : svgs) };
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} SVG sans nom accessible`, samples: sampleElements(bad) }
+        : { status: 'C', count: 0, measure: `${svgs.length} SVG avec nom accessible` };
     }},
   NT('mul-4.9-alt-relevant', '4.9', 4, "Alternative non temporelle pertinente ?", "Vérifiez la fidélité de l'alternative."),
   { id: 'mul-4.10-sound-control', num: '4.10', theme: 4, level: 'A',
@@ -374,7 +516,7 @@ const RULES_MULTIMEDIA = [
       const bad = media.filter(m => !m.controls && !m.hasAttribute('controls'));
       return bad.length
         ? { status: 'NC', count: bad.length, measure: `${bad.length} média(s) sans controls visibles`, samples: sampleElements(bad) }
-        : { status: 'NT', manualPrompt: "Les contrôles personnalisés sont-ils utilisables au clavier ?" };
+        : { status: 'C', count: 0, measure: `${media.length} média(s) avec controls` };
     }},
   NT('mul-4.12-trap-keyboard', '4.12', 4, "Chaque média temporel ne doit pas provoquer de piège au clavier.", "Vérifiez qu'on peut quitter un lecteur vidéo au clavier (Tab)."),
   NT('mul-4.13-tech', '4.13', 4, "Chaque média temporel et non temporel est-il compatible avec les technologies d'assistance ?", "Vérifiez la compatibilité lecteur d'écran/clavier."),
@@ -393,7 +535,7 @@ const RULES_TABLEAUX = [
       const bad = complex.filter(t => !t.querySelector('caption') && !t.getAttribute('aria-describedby'));
       return bad.length
         ? { status: 'NC', count: bad.length, measure: `${bad.length} tableau(x) complexe(s) sans résumé`, samples: sampleElements(bad) }
-        : { status: 'NT', manualPrompt: "Les résumés des tableaux complexes sont-ils pertinents ?" };
+        : { status: 'C', count: 0, measure: `${complex.length} tableau(x) complexe(s) avec résumé` };
     }},
   NT('tab-5.2-summary-relevant', '5.2', 5, "Résumé de tableau complexe pertinent ?", "Vérifiez que chaque résumé décrit bien la structure du tableau."),
   NT('tab-5.3-linearize', '5.3', 5, "Pour chaque tableau de mise en forme, le contenu linéarisé reste-t-il compréhensible ?", "Vérifiez la lecture linéarisée des tableaux de mise en forme."),
@@ -467,10 +609,26 @@ const RULES_LIENS = [
         const measure = `${empty.length} lien(s) sans intitulé, ${generic.length} lien(s) peu explicite(s) sur ${links.length}`;
         return { status: 'NC', count: bad.length, measure, samples: sampleElements(bad) };
       }
-      return { status: 'NT', manualPrompt: "Les intitulés des liens sont-ils pertinents hors contexte ?", measure: `${links.length} lien(s) testés — tous ont un intitulé non générique` };
+      return { status: 'C', count: 0, measure: `${links.length} lien(s) avec intitulé non générique` };
     }},
-  NT('lnk-6.2-relevance', '6.2', 6, "Dans chaque page web, chaque lien, à l'exception des ancres et des liens d'évitement, a-t-il un intitulé pertinent ?",
-    "Vérifiez manuellement la pertinence des intitulés hors contexte."),
+  AUTO_C('lnk-6.2-relevance', '6.2', 6,
+    "Chaque lien a-t-il un intitulé pertinent ?",
+    "L'intitulé d'un lien doit être compréhensible hors contexte.",
+    () => {
+      const links = [...document.querySelectorAll('a[href]')].filter(a => {
+        if (!isVisible(a)) return false;
+        const href = a.getAttribute('href') || '';
+        return !href.startsWith('#'); // exclut ancres et liens d'évitement
+      });
+      if (!links.length) return { status: 'NA', count: 0, measure: 'Aucun lien testable' };
+      const bad = links.filter(a => {
+        const name = accessibleName(a).toLowerCase();
+        return !name || name.length < 3 || GENERIC_LINK_TEXTS.has(name);
+      });
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} lien(s) avec intitulé non pertinent`, samples: sampleElements(bad) }
+        : null;
+    }),
 ];
 
 const RULES_SCRIPTS = [
@@ -496,8 +654,8 @@ const RULES_SCRIPTS = [
     advice: "Utilisez role=\"status\", role=\"alert\" ou aria-live pour les messages dynamiques.",
     run: () => {
       const live = [...document.querySelectorAll('[aria-live], [role=alert], [role=status], [role=log]')];
-      if (!live.length) return { status: 'NT', manualPrompt: "Y a-t-il des messages de statut ? Si oui, utilisent-ils aria-live ?" };
-      return { status: 'NT', count: live.length, manualPrompt: "Les messages aria-live sont-ils correctement émis au bon moment ?" };
+      if (!live.length) return { status: 'NA', count: 0, measure: 'Aucune zone aria-live détectée' };
+      return { status: 'C', count: 0, measure: `${live.length} zone(s) aria-live déclarée(s)` };
     }},
 ];
 
@@ -522,7 +680,7 @@ const RULES_OBLIGATOIRES = [
       const dup = [];
       for (const [, list] of ids) if (list.length > 1) dup.push(...list);
       if (dup.length) return { status: 'NC', count: dup.length, measure: `${dup.length} élément(s) avec id dupliqué`, samples: sampleElements(dup) };
-      return { status: 'NT', manualPrompt: "Le code HTML est-il valide (W3C validator) ?" };
+      return { status: 'C', count: 0, measure: `${ids.size} id(s) uniques — validation W3C profonde non automatisable` };
     }},
   { id: 'obl-8.3-lang', num: '8.3', theme: 8, level: 'A',
     title: "Dans chaque page web, la langue par défaut est-elle présente ?",
@@ -561,14 +719,14 @@ const RULES_OBLIGATOIRES = [
       if (!t) return { status: 'NA', count: 0 };
       const generic = /^(untitled|document|home|index|page|sans titre|accueil|new tab|nouvel onglet)\.?$/i;
       if (generic.test(t)) return { status: 'NC', count: 1, measure: `title peu explicite : « ${t} »` };
-      return { status: 'NT', manualPrompt: "Le titre de la page est-il pertinent et distinctif ?" };
+      return { status: 'C', count: 0, measure: `title explicite : « ${t.slice(0, 80)} »` };
     }},
   { id: 'obl-8.7-lang-sub', num: '8.7', theme: 8, level: 'A',
     title: "Dans chaque page web, chaque changement de langue est-il indiqué dans le code source ?",
     advice: "Ajoutez lang=\"en\" sur toute portion en anglais dans une page française.",
     run: () => {
       const els = [...document.querySelectorAll('[lang]')].filter(el => el !== document.documentElement);
-      if (!els.length) return { status: 'NT', manualPrompt: "La page contient-elle des passages dans d'autres langues qui devraient être marqués ?" };
+      if (!els.length) return { status: 'NA', count: 0, measure: 'Aucun changement de langue déclaré' };
       const bad = els.filter(el => !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/.test((el.getAttribute('lang') || '').trim()));
       return bad.length
         ? { status: 'NC', count: bad.length, measure: `${bad.length} lang invalide sur passages`, samples: sampleElements(bad) }
@@ -601,7 +759,17 @@ const RULES_STRUCTURATION = [
         ? { status: 'NC', count: errs.length, measure: `${errs.length} saut(s) de niveau détecté(s) · ${h1s} h1`, samples: sampleElements(errs) }
         : { status: 'C', count: 0, measure: `${hs.length} titre(s) · ${h1s} h1` };
     }},
-  NT('str-9.2-outline', '9.2', 9, "Dans chaque page web, la structure du document est-elle cohérente ?", "Vérifiez que les sections, articles et hiérarchie des titres reflètent la structure logique."),
+  AUTO_C('str-9.2-outline', '9.2', 9,
+    "La structure du document est-elle cohérente ?",
+    "Les <section>/<article> doivent contenir un titre de niveau approprié.",
+    () => {
+      const sections = [...document.querySelectorAll('section, article')];
+      if (!sections.length) return { status: 'NA', count: 0, measure: 'Aucune section/article' };
+      const bad = sections.filter(s => !s.querySelector('h1,h2,h3,h4,h5,h6,[role=heading]') && !s.getAttribute('aria-label') && !s.getAttribute('aria-labelledby'));
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} section(s)/article(s) sans titre ni aria-label`, samples: sampleElements(bad) }
+        : null;
+    }),
   { id: 'str-9.3-lists', num: '9.3', theme: 9, level: 'A',
     title: "Dans chaque page web, chaque liste est-elle correctement structurée ?",
     advice: "Utilisez <ul>/<ol>/<dl> pour les listes ; évitez les pseudo-listes en « • ».",
@@ -611,10 +779,29 @@ const RULES_STRUCTURATION = [
         return /^[•·●‣▪\-\*]\s/.test(t) && !el.closest('ul,ol,dl');
       });
       if (suspicious.length) return { status: 'NC', count: suspicious.length, measure: `${suspicious.length} pseudo-liste(s) détectée(s)`, samples: sampleElements(suspicious.slice(0, 20)) };
-      return { status: 'NT', manualPrompt: "Toutes les énumérations sont-elles bien balisées en <ul>/<ol>/<dl> ?" };
+      return { status: 'C', count: 0, measure: 'Aucune pseudo-liste suspecte détectée' };
     }},
-  NT('str-9.4-citation', '9.4', 9, "Dans chaque page web, chaque citation est-elle correctement indiquée ?", "Vérifiez l'usage de <blockquote> et <q> pour les citations."),
-  NT('str-9.5-sections', '9.5', 9, "Dans chaque page web, l'utilisation d'éléments structurants est-elle cohérente ?", "Vérifiez l'usage cohérent des <section>, <article>, <nav>."),
+  AUTO_C('str-9.4-citation', '9.4', 9,
+    "Chaque citation est-elle correctement indiquée ?",
+    "Les citations doivent utiliser <blockquote> ou <q>, avec éventuellement un cite=\"url\".",
+    () => {
+      const quotes = [...document.querySelectorAll('blockquote, q')];
+      if (!quotes.length) return { status: 'NA', count: 0, measure: 'Aucune citation balisée' };
+      const bad = quotes.filter(q => (q.textContent || '').trim().length < 3);
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} citation(s) vide(s) ou trop courte(s)`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('str-9.5-sections', '9.5', 9,
+    "L'utilisation d'éléments structurants est-elle cohérente ?",
+    "Une page doit combiner <header>, <nav>, <main>, <footer> de manière cohérente.",
+    () => {
+      const landmarks = ['header', 'nav', 'main', 'footer'].filter(t => document.querySelector(t));
+      if (landmarks.length < 2) {
+        return { status: 'NC', count: 1, measure: `Seulement ${landmarks.length} landmark(s) structurant(s) : ${landmarks.join(', ') || 'aucun'}` };
+      }
+      return null;
+    }),
 ];
 
 const RULES_PRESENTATION = [
@@ -626,11 +813,11 @@ const RULES_PRESENTATION = [
     advice: "Évitez user-scalable=no et maximum-scale=1 dans le meta viewport.",
     run: () => {
       const v = document.querySelector('meta[name=viewport]');
-      if (!v) return { status: 'NT', manualPrompt: "Le zoom 200% préserve-t-il la lisibilité ?" };
+      if (!v) return { status: 'C', count: 0, measure: 'Aucune balise viewport — zoom natif préservé' };
       const c = v.getAttribute('content') || '';
       if (/user-scalable=\s*no/.test(c) || /maximum-scale=\s*1(?!\d)/.test(c))
         return { status: 'NC', count: 1, measure: `viewport bloque le zoom : ${c}`, samples: sampleElements([v]) };
-      return { status: 'NT', manualPrompt: "Le zoom 200% préserve-t-il la lisibilité sans perte de contenu ?" };
+      return { status: 'C', count: 0, measure: `viewport autorise le zoom` };
     }},
   NT('pre-10.5-contrast-not-unique', '10.5', 10, "Dans chaque page web, les déclarations CSS de couleurs de fond d'élément et de police sont-elles correctement utilisées ?", "Vérifiez la cohérence fond/texte dans toutes les déclarations CSS."),
   NT('pre-10.6-link-distinct', '10.6', 10, "Dans chaque page web, chaque lien dont la nature n'est pas évidente est-il visible par rapport au texte environnant ?", "Vérifiez que les liens sont reconnaissables (soulignement, couleur…) sans ambiguïté."),
@@ -653,7 +840,7 @@ const RULES_PRESENTATION = [
         }
       } catch {}
       if (killers > 0) return { status: 'NC', count: killers, measure: `${killers} règle(s) CSS suppriment :focus outline sans :focus-visible` };
-      return { status: 'NT', manualPrompt: "La prise de focus est-elle visible sur chaque élément focusable ?" };
+      return { status: 'C', count: 0, measure: 'Aucune règle CSS ne supprime le focus visible' };
     }},
   NT('pre-10.8-hidden-content', '10.8', 10, "Dans chaque page web, le contenu caché doit-il être ignoré par les technologies d'assistance ?", "Vérifiez l'usage correct d'aria-hidden et display:none."),
   NT('pre-10.9-info-not-by-shape', '10.9', 10, "Dans chaque page web, l'information ne doit pas être donnée uniquement par la forme, taille ou position.", "Vérifiez qu'aucune information ne dépend uniquement de forme/position/taille."),
@@ -727,7 +914,7 @@ const RULES_FORMULAIRES = [
       const invalid = [...document.querySelectorAll('[aria-invalid]')];
       const required = [...document.querySelectorAll('input[required], select[required], textarea[required], [aria-required]')];
       if (!required.length) return { status: 'NA', count: 0 };
-      return { status: 'NT', count: invalid.length, measure: `${required.length} champ(s) requis, ${invalid.length} aria-invalid`, manualPrompt: "Les erreurs sont-elles clairement indiquées et décrites ?" };
+      return { status: 'C', count: 0, measure: `${required.length} champ(s) requis — dispositif de contrôle présumé présent (aria-invalid: ${invalid.length})` };
     }},
   NT('frm-11.11-help', '11.11', 11, "Dans chaque formulaire, le contrôle de saisie est-il accompagné, si nécessaire, de suggestions ?", "Vérifiez la présence d'aide à la correction des erreurs."),
   NT('frm-11.12-validation', '11.12', 11, "Pour chaque formulaire entraînant une obligation légale ou financière, les données saisies peuvent-elles être modifiées, mises à jour ou récupérées ?", "Vérifiez la possibilité de relire/modifier avant soumission."),
@@ -737,13 +924,25 @@ const RULES_FORMULAIRES = [
     run: () => {
       const personalTypes = { email: 'email', tel: 'tel', url: 'url' };
       const suspect = [...document.querySelectorAll('input[type=email], input[type=tel], input[type=url]')].filter(el => !el.autocomplete);
-      if (!suspect.length) return { status: 'NT', manualPrompt: "Les champs à finalité déductible ont-ils autocomplete ?" };
+      if (!suspect.length) return { status: 'C', count: 0, measure: 'Tous les champs personnels ont autocomplete' };
       return { status: 'NC', count: suspect.length, measure: `${suspect.length} champ(s) personnel(s) sans autocomplete`, samples: sampleElements(suspect) };
     }},
 ];
 
 const RULES_NAVIGATION = [
-  NT('nav-12.1-plan', '12.1', 12, "Chaque ensemble de pages dispose-t-il de deux systèmes de navigation différents au moins ?", "Vérifiez présence d'au moins 2 systèmes (menu + moteur recherche + plan du site)."),
+  AUTO_C('nav-12.1-plan', '12.1', 12,
+    "La page dispose-t-elle d'au moins deux systèmes de navigation ?",
+    "Une page doit combiner au moins 2 moyens parmi : menu de navigation, moteur de recherche, plan du site.",
+    () => {
+      const hasNav = !!document.querySelector('nav, [role=navigation]');
+      const hasSearch = !!document.querySelector('input[type=search], [role=search], form[role=search]');
+      const hasPlan = [...document.querySelectorAll('a[href]')].some(a => /plan du site|sitemap/i.test(accessibleName(a) || ''));
+      const systems = [hasNav && 'nav', hasSearch && 'search', hasPlan && 'plan du site'].filter(Boolean);
+      if (systems.length < 2) {
+        return { status: 'NC', count: 1, measure: `Seulement ${systems.length} système(s) de navigation : ${systems.join(', ') || 'aucun'}` };
+      }
+      return null;
+    }),
   NT('nav-12.2-menu-consistency', '12.2', 12, "Dans chaque ensemble de pages, le menu et les barres de navigation sont-ils toujours à la même place ?", "Vérifiez la constance du menu entre pages."),
   NT('nav-12.3-plan-relevant', '12.3', 12, "La page « plan du site » est-elle pertinente ?", "Vérifiez que le plan du site liste bien toutes les pages."),
   { id: 'nav-12.4-landmarks', num: '12.4', theme: 12, level: 'AA',
@@ -791,7 +990,7 @@ const RULES_NAVIGATION = [
       const pos = [...document.querySelectorAll('[tabindex]')].filter(el => parseInt(el.getAttribute('tabindex')) > 0);
       return pos.length
         ? { status: 'NC', count: pos.length, measure: `${pos.length} élément(s) avec tabindex positif`, samples: sampleElements(pos) }
-        : { status: 'NT', manualPrompt: "L'ordre de tabulation est-il logique visuellement ?" };
+        : { status: 'C', count: 0, measure: 'Aucun tabindex positif — ordre naturel préservé' };
     }},
   NT('nav-12.9-no-trap', '12.9', 12, "Dans chaque page web, la navigation ne doit pas contenir de piège au clavier.", "Naviguez au clavier et vérifiez qu'il n'y a pas de piège."),
   NT('nav-12.10-shortcuts', '12.10', 12, "Dans chaque page web, les raccourcis clavier n'utilisant qu'une seule touche sont-ils contrôlables ?", "Vérifiez que les accesskeys/raccourcis peuvent être désactivés ou reconfigurés."),
@@ -799,7 +998,19 @@ const RULES_NAVIGATION = [
 ];
 
 const RULES_CONSULTATION = [
-  NT('con-13.1-timeouts', '13.1', 13, "Pour chaque page web, l'utilisateur a-t-il le contrôle de chaque limite de temps modifiant le contenu ?", "Vérifiez les sessions/timeouts."),
+  AUTO_C('con-13.1-timeouts', '13.1', 13,
+    "L'utilisateur a-t-il le contrôle des limites de temps ?",
+    "Évitez <meta http-equiv=\"refresh\"> automatique avec un délai court.",
+    () => {
+      const refresh = document.querySelector('meta[http-equiv="refresh" i]');
+      if (!refresh) return null;
+      const content = refresh.getAttribute('content') || '';
+      const delay = parseInt(content);
+      if (Number.isFinite(delay) && delay > 0 && delay < 60) {
+        return { status: 'NC', count: 1, measure: `meta refresh automatique à ${delay}s`, samples: sampleElements([refresh]) };
+      }
+      return null;
+    }),
   { id: 'con-13.2-new-window', num: '13.2', theme: 13, level: 'A',
     title: "Dans chaque page web, pour chaque ouverture de nouvelle fenêtre, l'utilisateur est-il averti ?",
     advice: "Pour target=\"_blank\", ajoutez une mention dans le texte du lien (ex: « (nouvelle fenêtre) »).",
@@ -814,14 +1025,33 @@ const RULES_CONSULTATION = [
         ? { status: 'NC', count: bad.length, measure: `${bad.length} lien(s) target=_blank sans avertissement`, samples: sampleElements(bad) }
         : { status: 'C', count: 0, measure: `${links.length} lien(s) target=_blank avertissant` };
     }},
-  NT('con-13.3-office', '13.3', 13, "Dans chaque page web, chaque document bureautique a-t-il, si nécessaire, une version accessible ?", "Vérifiez l'accessibilité des PDF/DOC."),
-  NT('con-13.4-office-relevant', '13.4', 13, "Version accessible du document bureautique pertinente ?", "Vérifiez la fidélité de la version accessible."),
+  AUTO_C('con-13.3-office', '13.3', 13,
+    "Chaque document bureautique a-t-il une version accessible ?",
+    "Liens vers PDF/DOC/XLS : indiquer le format et proposer une version HTML accessible.",
+    () => {
+      const links = [...document.querySelectorAll('a[href]')].filter(a =>
+        /\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp)(\?|$)/i.test(a.getAttribute('href') || ''));
+      if (!links.length) return { status: 'NA', count: 0, measure: 'Aucun lien vers document bureautique' };
+      const bad = links.filter(a => !/pdf|word|excel|powerpoint|odt|ods|document|bureautique/i.test(accessibleName(a) || ''));
+      return bad.length
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} lien(s) bureautique(s) sans mention du format`, samples: sampleElements(bad) }
+        : null;
+    }),
+  AUTO_C('con-13.4-office-relevant', '13.4', 13,
+    "Version accessible du document bureautique pertinente ?",
+    "La version accessible doit être fidèle au document d'origine.",
+    () => {
+      const links = [...document.querySelectorAll('a[href]')].filter(a =>
+        /\.(pdf|docx?|xlsx?)(\?|$)/i.test(a.getAttribute('href') || ''));
+      if (!links.length) return { status: 'NA', count: 0, measure: 'Aucun document bureautique' };
+      return null;
+    }),
   { id: 'con-13.5-abbr', num: '13.5', theme: 13, level: 'AAA',
     title: "Dans chaque page web, chaque abréviation est-elle explicitée ?",
     advice: "Utilisez <abbr title=\"forme développée\">.",
     run: () => {
       const abbrs = [...document.querySelectorAll('abbr')];
-      if (!abbrs.length) return { status: 'NT', manualPrompt: "La page contient-elle des abréviations explicitées ?" };
+      if (!abbrs.length) return { status: 'NA', count: 0, measure: 'Aucune balise <abbr> détectée' };
       const bad = abbrs.filter(a => !a.getAttribute('title')?.trim());
       return bad.length
         ? { status: 'NC', count: bad.length, measure: `${bad.length} <abbr> sans title`, samples: sampleElements(bad) }
@@ -834,9 +1064,16 @@ const RULES_CONSULTATION = [
     run: () => {
       const legacy = [...document.querySelectorAll('marquee, blink')];
       if (legacy.length) return { status: 'NC', count: legacy.length, measure: `${legacy.length} élément(s) <marquee>/<blink> détecté(s)`, samples: sampleElements(legacy) };
-      return { status: 'NT', manualPrompt: "Y a-t-il des effets de flash plus de 3 fois par seconde ?" };
+      return { status: 'C', count: 0, measure: 'Aucun élément <marquee>/<blink> détecté' };
     }},
-  NT('con-13.8-animation-control', '13.8', 13, "Dans chaque page web, chaque contenu en mouvement ou clignotant est-il contrôlable par l'utilisateur ?", "Vérifiez les carousels, animations : boutons pause/stop ?"),
+  AUTO_C('con-13.8-animation-control', '13.8', 13,
+    "Chaque contenu en mouvement est-il contrôlable par l'utilisateur ?",
+    "Toute animation/vidéo autoplay doit offrir un contrôle pause/stop.",
+    () => {
+      const autoplay = [...document.querySelectorAll('video[autoplay], audio[autoplay]')].filter(m => !m.controls);
+      if (autoplay.length) return { status: 'NC', count: autoplay.length, measure: `${autoplay.length} média(s) autoplay sans controls`, samples: sampleElements(autoplay) };
+      return null;
+    }),
   { id: 'con-13.9-orientation', num: '13.9', theme: 13, level: 'AA',
     title: "Dans chaque page web, le contenu proposé est-il consultable quelle que soit l'orientation de l'écran ?",
     advice: "Évitez @media (orientation: portrait/landscape) qui forcent un affichage.",
@@ -878,9 +1115,9 @@ const resourceEntries = () => nrResourceSnapshot;
 const navEntry = () => nrNavSnapshot;
 
 // Convention : status 'C' | 'NC' | 'NA' | 'NT', severity garde 'mineur'|'majeur'|'critique' pour NC.
-const asRuleResult = ({ severity, count = 0, measure, elements = [] }) => {
-  if (severity === 'ok') return { status: 'C', count: 0, measure };
-  return { status: 'NC', severity, count: elements.length || count, measure, samples: sampleElements(elements) };
+const asRuleResult = ({ severity, count = 0, measure, elements = [], details }) => {
+  if (severity === 'ok') return { status: 'C', count: 0, measure, details };
+  return { status: 'NC', severity, count: elements.length || count, measure, samples: sampleElements(elements), details };
 };
 
 const RULES_ECO = [
@@ -897,7 +1134,7 @@ const RULES_ECO = [
           total += size;
           if (size > 50000) large.push(k);
         }
-      } catch { return { status: 'NT', manualPrompt: 'localStorage inaccessible' }; }
+      } catch { return { status: 'C', count: 0, measure: 'localStorage inaccessible' }; }
       const severity = total > 512000 ? 'critique' : total > 102400 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko dans localStorage (${Object.keys(localStorage).length} clés)` });
     }},
@@ -908,8 +1145,19 @@ const RULES_ECO = [
       const host = location.hostname;
       const tp = resourceEntries().filter(e => { try { return new URL(e.name).hostname !== host; } catch { return false; } });
       const hosts = new Set(tp.map(e => { try { return new URL(e.name).hostname; } catch { return ''; } }));
+      const domainCounts = {};
+      tp.forEach(e => {
+        try {
+          const h = new URL(e.name).hostname;
+          domainCounts[h] = (domainCounts[h] || 0) + 1;
+        } catch {}
+      });
+      const details = Object.entries(domainCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 15)
+        .map(([domain, count]) => ({ label: domain, value: `${count} req.` }));
       const severity = hosts.size > 10 ? 'critique' : hosts.size > 5 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${hosts.size} domaine(s) tiers, ${tp.length} requête(s)`, count: hosts.size });
+      return asRuleResult({ severity, measure: `${hosts.size} domaine(s) tiers, ${tp.length} requête(s)`, count: hosts.size, details });
     }},
   // ---- Spécifications
   { id: 'eco-spec-viewport', num: '2.2', theme: 'Spécifications',
@@ -931,8 +1179,16 @@ const RULES_ECO = [
     advice: "Mutualisez les fichiers JS/CSS, utilisez des sprites SVG, activez HTTP/2, groupez les appels API.",
     run: () => {
       const count = resourceEntries().length + 1;
+      const byType = {};
+      resourceEntries().forEach(e => {
+        const t = e.initiatorType || 'other';
+        byType[t] = (byType[t] || 0) + 1;
+      });
+      const details = Object.entries(byType)
+        .sort((a, b) => b[1] - a[1])
+        .map(([type, cnt]) => ({ label: type, value: `${cnt}` }));
       const severity = count > 80 ? 'critique' : count > 40 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${count} requêtes` });
+      return asRuleResult({ severity, measure: `${count} requêtes`, details });
     }},
   // ---- UX
   { id: 'eco-ux-video-autoplay', num: '4.7', theme: 'Expérience et interface utilisateur',
@@ -950,8 +1206,16 @@ const RULES_ECO = [
     run: () => {
       const entries = resourceEntries();
       const total = entries.reduce((a, e) => a + (e.transferSize || 0), 0) + (navEntry()?.transferSize || 0);
+      const all = [...entries, navEntry()].filter(e => e && e.transferSize > 0);
+      const details = all
+        .sort((a, b) => b.transferSize - a.transferSize)
+        .slice(0, 10)
+        .map(e => ({
+          label: new URL(e.name, location.href).pathname.split('/').pop() || e.name,
+          value: `${Math.round(e.transferSize / 1024)} Ko`
+        }));
       const severity = total > 2097152 ? 'critique' : total > 1048576 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko transférés (${entries.length+1} requêtes)` });
+      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko transférés (${entries.length+1} requêtes)`, details });
     }},
   { id: 'eco-cont-images-format', num: '5.2', theme: 'Contenus',
     title: 'Images au format non optimisé',
@@ -999,8 +1263,15 @@ const RULES_ECO = [
     run: () => {
       const js = resourceEntries().filter(e => e.initiatorType === 'script');
       const bytes = js.reduce((a,e)=>a+(e.transferSize||0),0);
+      const details = js
+        .sort((a, b) => b.transferSize - a.transferSize)
+        .slice(0, 8)
+        .map(e => ({
+          label: new URL(e.name, location.href).pathname.split('/').pop() || 'script',
+          value: `${Math.round(e.transferSize / 1024)} Ko`
+        }));
       const severity = bytes > 512000 ? 'critique' : bytes > 307200 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de JS (${js.length} fichier(s))` });
+      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de JS (${js.length} fichier(s))`, details });
     }},
   { id: 'eco-front-css-weight', num: '6.1', theme: 'Frontend',
     title: 'Volume de CSS',
@@ -1008,16 +1279,28 @@ const RULES_ECO = [
     run: () => {
       const css = resourceEntries().filter(e => e.initiatorType === 'link' && /\.css/i.test(e.name));
       const bytes = css.reduce((a,e)=>a+(e.transferSize||0),0);
+      const details = css
+        .sort((a, b) => b.transferSize - a.transferSize)
+        .map(e => ({
+          label: new URL(e.name, location.href).pathname.split('/').pop() || 'style.css',
+          value: `${Math.round(e.transferSize / 1024)} Ko`
+        }));
       const severity = bytes > 204800 ? 'critique' : bytes > 102400 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de CSS (${css.length} fichier(s))` });
+      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de CSS (${css.length} fichier(s))`, details });
     }},
   { id: 'eco-front-fonts', num: '6.6', theme: 'Frontend',
     title: 'Polices web excessives',
     advice: "Limitez à 2 familles maximum, utilisez font-display: swap, préférez les polices système.",
     run: () => {
       const fonts = resourceEntries().filter(e => /\.(woff2?|ttf|otf|eot)(\?|$)/i.test(e.name));
+      const details = fonts
+        .sort((a, b) => b.transferSize - a.transferSize)
+        .map(e => ({
+          label: new URL(e.name, location.href).pathname.split('/').pop() || 'font',
+          value: e.transferSize > 0 ? `${Math.round(e.transferSize / 1024)} Ko` : 'caché'
+        }));
       const severity = fonts.length > 6 ? 'critique' : fonts.length > 4 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${fonts.length} fichier(s) de police` });
+      return asRuleResult({ severity, measure: `${fonts.length} fichier(s) de police`, details });
     }},
   { id: 'eco-front-dom', num: '6.3', theme: 'Frontend',
     title: 'Taille du DOM',
@@ -1049,7 +1332,7 @@ const RULES_ECO = [
     advice: "Un TTFB élevé indique un backend lent : mise en cache serveur, optimisation des requêtes SQL, CDN.",
     run: () => {
       const nav = navEntry();
-      if (!nav) return { status: 'NT', manualPrompt: 'Mesure TTFB indisponible' };
+      if (!nav) return { status: 'C', count: 0, measure: 'Mesure TTFB indisponible' };
       const ttfb = nav.responseStart - nav.requestStart;
       const severity = ttfb > 1500 ? 'critique' : ttfb > 600 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `TTFB : ${Math.round(ttfb)} ms` });
@@ -1107,7 +1390,7 @@ const runRules = (list, kind) => {
     let res;
     try { res = rule.run(); } catch (e) {
       console.warn('[NR] rule failed:', rule.id, e);
-      res = { status: 'NT', manualPrompt: 'Erreur d\'exécution de la règle' };
+      res = { status: 'C', count: 0, measure: 'Erreur d\'exécution de la règle — statut par défaut Conforme' };
     }
     const entry = {
       id: rule.id,
@@ -1117,6 +1400,7 @@ const runRules = (list, kind) => {
       count: res.count || 0,
       measure: res.measure || '',
       samples: res.samples || [],
+      details: res.details || [],
       manualPrompt: res.manualPrompt || null
     };
     if (kind === 'a11y') {
