@@ -1132,123 +1132,216 @@ function csvEscape(v) {
 
 // ---------------- Export PDF ----------------
 function exportPdf() {
+  const { jsPDF } = window.jspdf;
   const domain = state.pagesResults[0] ? new URL(state.pagesResults[0].meta.url).hostname : 'audit';
   const date = new Date().toLocaleString('fr-FR');
   const title = state.mode === 'a11y' ? 'Accessibilité' : state.mode === 'eco' ? 'Écoconception' : 'Complet';
 
-  let html = `<!DOCTYPE html>
-<html lang="fr"><head><meta charset="UTF-8">
-<title>Rapport ${title} — ${domain}</title>
-<style>
-  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1a2332; max-width: 900px; margin: 32px auto; padding: 0 24px; }
-  h1 { font-size: 24px; margin: 0 0 4px; }
-  h2 { font-size: 18px; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 2px solid #2d7a4f; }
-  h3 { font-size: 14px; margin: 18px 0 6px; }
-  .meta { color: #6b7a8f; font-size: 12px; margin-bottom: 24px; }
-  .score { display: inline-block; padding: 16px 28px; background: #f7f9fb; border-radius: 10px; margin-right: 12px; text-align: center; }
-  .score .num { font-size: 32px; font-weight: 700; display: block; }
-  .score .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #6b7a8f; }
-  table.synth { width: 100%; border-collapse: collapse; margin: 12px 0 24px; font-size: 12px; }
-  table.synth th, table.synth td { padding: 6px 10px; border-bottom: 1px solid #e4e8ee; text-align: left; }
-  table.synth th { background: #f7f9fb; font-weight: 600; }
-  table.synth td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .issue { break-inside: avoid; margin-bottom: 12px; padding: 10px 12px; border-left: 3px solid #ccc; background: #f7f9fb; border-radius: 4px; }
-  .issue.status-NC { border-left-color: #c13535; }
-  .issue.status-NT { border-left-color: #d97706; }
-  .issue.status-C  { border-left-color: #2d7a4f; }
-  .issue.status-NA { border-left-color: #6b7a8f; }
-  .badge { display: inline-block; font-size: 10px; text-transform: uppercase; font-weight: 700; padding: 2px 7px; border-radius: 3px; margin-right: 6px; }
-  .badge.status-NC { background: #fdecec; color: #c13535; }
-  .badge.status-NT { background: #fef4e3; color: #d97706; }
-  .badge.status-C  { background: #e6f3eb; color: #2d7a4f; }
-  .badge.status-NA { background: #eef1f5; color: #6b7a8f; }
-  .rule-title { font-weight: 600; font-size: 13px; }
-  .rule-meta { color: #6b7a8f; font-size: 11px; margin: 2px 0 6px; }
-  .advice { font-size: 12px; margin: 3px 0; }
-  .pages-list { font-size: 11px; color: #6b7a8f; margin-top: 4px; padding-left: 16px; }
-  .pages-list li { font-family: ui-monospace, Menlo, monospace; word-break: break-all; }
-  footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e4e8ee; font-size: 11px; color: #6b7a8f; text-align: center; }
-  @media print { body { margin: 0; } }
-</style></head><body>
-<h1>🌿 Rapport d'audit — ${escapeHtml(title)}</h1>
-<p class="meta">Site : <strong>${escapeHtml(domain)}</strong> · ${state.pagesResults.length} page(s) auditée(s) · Généré le ${escapeHtml(date)}</p>`;
+  const btn = document.getElementById('export-pdf');
+  btn.disabled = true;
+  btn.querySelector('.btn-label').textContent = 'En cours…';
 
-  const scoreBlock = (kind, label) => {
-    const s = state.aggregated.statusCounts[kind];
-    return `<div class="score">
-      <span class="num">${state.aggregated.scores[kind]}</span>
-      <span class="label">${label}</span>
-      <div style="font-size:11px;margin-top:6px;color:#6b7a8f">${s.C} C · ${s.NC} NC · ${s.NT} NT · ${s.NA} NA</div>
-    </div>`;
-  };
-  if (state.mode === 'a11y' || state.mode === 'both') html += scoreBlock('a11y', 'Accessibilité');
-  if (state.mode === 'eco' || state.mode === 'both') html += scoreBlock('eco', 'Écoconception');
+  try {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const pageW = 210, pageH = 297, margin = 14, contentW = pageW - margin * 2;
+    let y = margin;
 
-  const renderSynthTable = (kind, label) => {
-    const themes = state.aggregated.themeStats[kind];
-    const rows = [...themes.values()].filter(v => v.total);
-    if (!rows.length) return;
-    html += `<h2>${escapeHtml(label)} — synthèse par thématique</h2>
-    <table class="synth">
-      <thead><tr><th>Thématique</th><th>Total</th><th>C</th><th>NC</th><th>NT</th><th>NA</th></tr></thead>
-      <tbody>
-        ${rows.map(v => `<tr>
-          <td>${escapeHtml(v.theme)}</td>
-          <td class="num">${v.total}</td>
-          <td class="num">${v.C}</td>
-          <td class="num">${v.NC}</td>
-          <td class="num">${v.NT}</td>
-          <td class="num">${v.NA}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>`;
-  };
-  if (state.mode === 'a11y' || state.mode === 'both') renderSynthTable('a11y', 'Accessibilité');
-  if (state.mode === 'eco' || state.mode === 'both') renderSynthTable('eco', 'Écoconception');
+    const addPageIfNeeded = (h) => {
+      if (y + h > pageH - 20) { doc.addPage(); y = margin; }
+    };
 
-  const renderSection = (kind, label) => {
-    const map = state.aggregated.byRule[kind];
-    if (!map || !map.size) return;
-    const entries = [...map.values()].filter(entry => {
-      if (!state.activeStatuses.has(entry.aggregateStatus)) return false;
-      if (state.activeThemes.size) {
-        const theme = themeKeyOf(kind, entry.rule);
-        if (!state.activeThemes.has(theme)) return false;
+    const statusColors = {
+      NC: { bg: [253, 236, 236], border: [193, 53, 53], text: [193, 53, 53] },
+      NT: { bg: [254, 244, 227], border: [217, 119, 6], text: [217, 119, 6] },
+      C:  { bg: [230, 243, 235], border: [45, 122, 79], text: [45, 122, 79] },
+      NA: { bg: [238, 241, 245], border: [107, 122, 143], text: [107, 122, 143] }
+    };
+
+    // Title
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(26, 35, 50);
+    doc.text(`Rapport d'audit — ${title}`, margin, y);
+    y += 8;
+
+    // Meta
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(107, 122, 143);
+    doc.text(`Site : ${domain} · ${state.pagesResults.length} page(s) · Généré le ${date}`, margin, y);
+    y += 10;
+
+    // Score blocks
+    const renderScore = (kind, label) => {
+      const s = state.aggregated.statusCounts[kind];
+      const score = state.aggregated.scores[kind];
+
+      doc.setFillColor(247, 249, 251);
+      doc.roundedRect(margin, y, 80, 14, 1, 1, 'F');
+
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(45, 122, 79);
+      doc.text(String(score), margin + 4, y + 9);
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(107, 122, 143);
+      doc.text(label.toUpperCase(), margin + 18, y + 5);
+
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${s.C}C · ${s.NC}NC · ${s.NT}NT · ${s.NA}NA`, margin + 18, y + 10);
+
+      y += 18;
+    };
+
+    if (state.mode === 'a11y' || state.mode === 'both') renderScore('a11y', 'Accessibilité');
+    if (state.mode === 'eco' || state.mode === 'both') renderScore('eco', 'Écoconception');
+
+    // Synthesis tables
+    const renderSynthTable = (kind, label) => {
+      const themes = state.aggregated.themeStats[kind];
+      const rows = [...themes.values()].filter(v => v.total);
+      if (!rows.length) return;
+
+      addPageIfNeeded(20);
+
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(26, 35, 50);
+      doc.text(`${label} — synthèse par thématique`, margin, y);
+      y += 6;
+
+      doc.autoTable({
+        startY: y, margin: { left: margin, right: margin, top: 0, bottom: 0 },
+        head: [['Thématique', 'Total', 'C', 'NC', 'NT', 'NA']],
+        body: rows.map(v => [v.theme, String(v.total), String(v.C), String(v.NC), String(v.NT), String(v.NA)]),
+        styles: { fontSize: 8, cellPadding: 2.5, textColor: [26, 35, 50] },
+        headStyles: { fillColor: [247, 249, 251], textColor: [26, 35, 50], fontStyle: 'bold', fontSize: 7 },
+        columnStyles: { 0: { cellWidth: 'auto' }, 1: { halign: 'center', cellWidth: 16 }, 2: { halign: 'center', cellWidth: 14 }, 3: { halign: 'center', cellWidth: 14 }, 4: { halign: 'center', cellWidth: 14 }, 5: { halign: 'center', cellWidth: 14 } },
+        theme: 'plain', tableLineColor: [228, 232, 238], tableLineWidth: 0.1, didDrawPage: (data) => { }
+      });
+      y = doc.lastAutoTable.finalY + 10;
+    };
+
+    if (state.mode === 'a11y' || state.mode === 'both') renderSynthTable('a11y', 'Accessibilité');
+    if (state.mode === 'eco' || state.mode === 'both') renderSynthTable('eco', 'Écoconception');
+
+    // Issue sections
+    const renderSection = (kind, label) => {
+      const map = state.aggregated.byRule[kind];
+      if (!map || !map.size) return;
+      const entries = [...map.values()].filter(entry => {
+        if (!state.activeStatuses.has(entry.aggregateStatus)) return false;
+        if (state.activeThemes.size) {
+          const theme = themeKeyOf(kind, entry.rule);
+          if (!state.activeThemes.has(theme)) return false;
+        }
+        return true;
+      });
+      if (!entries.length) return;
+      sortEntries(entries);
+
+      addPageIfNeeded(14);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(26, 35, 50);
+      doc.text(`${label} — détail`, margin, y);
+      y += 8;
+
+      for (const entry of entries) {
+        const r = entry.rule;
+        const status = entry.aggregateStatus;
+        const colors = statusColors[status] || statusColors.NA;
+        const meta = kind === 'a11y'
+          ? `RGAA ${r.rgaa || ''} · N${r.level || ''} · ${r.themeLabel || ''}`
+          : `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
+        const advice = r.advice ? `Conseil : ${r.advice}` : '';
+        const measure = entry.byPage.find(p => p.measure)?.measure || r.measure || '';
+        const measureTxt = measure ? `Mesure : ${measure}` : '';
+
+        const titleLines = doc.splitTextToSize(r.title || '', contentW - 24);
+        const adviceLines = advice ? doc.splitTextToSize(advice, contentW - 6) : [];
+        const measureLines = measureTxt ? doc.splitTextToSize(measureTxt, contentW - 6) : [];
+        const urlCount = Math.min(entry.byPage.length > 1 ? entry.byPage.length : 0, 12);
+
+        let h = 4 + titleLines.length * 4 + 3 + (adviceLines.length ? adviceLines.length * 3.5 + 1 : 0) + (measureLines.length ? measureLines.length * 3.5 + 1 : 0) + (urlCount ? urlCount * 3.2 : 0) + 4;
+        addPageIfNeeded(h);
+
+        doc.setFillColor(...colors.bg);
+        doc.roundedRect(margin, y, contentW, h, 0.8, 0.8, 'F');
+        doc.setFillColor(...colors.border);
+        doc.rect(margin, y, 2.5, h, 'F');
+
+        let cy = y + 4;
+        doc.setFontSize(7);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(...colors.text);
+        doc.text(status, margin + 4, cy);
+
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(26, 35, 50);
+        doc.text(titleLines, margin + 8, cy);
+        cy += titleLines.length * 4 + 2;
+
+        doc.setFontSize(7.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(107, 122, 143);
+        doc.text(`${meta} · ${entry.totalCount} occ. · ${entry.byPage.length} page(s)`, margin + 4, cy);
+        cy += 4;
+
+        if (adviceLines.length) {
+          doc.setTextColor(26, 35, 50);
+          doc.text(adviceLines, margin + 4, cy);
+          cy += adviceLines.length * 3.5 + 1;
+        }
+
+        if (measureLines.length) {
+          doc.setTextColor(26, 35, 50);
+          doc.text(measureLines, margin + 4, cy);
+          cy += measureLines.length * 3.5 + 1;
+        }
+
+        if (urlCount > 0) {
+          doc.setFontSize(7);
+          doc.setTextColor(107, 122, 143);
+          const shown = entry.byPage.slice(0, 12);
+          for (const p of shown) {
+            doc.text(`• ${p.url} — ${p.status}${p.count ? ` (${p.count})` : ''}`, margin + 5, cy);
+            cy += 3.2;
+          }
+        }
+
+        y += h + 3;
       }
-      return true;
-    });
-    if (!entries.length) return;
-    sortEntries(entries);
-    html += `<h2>${escapeHtml(label)} — détail</h2>`;
-    for (const entry of entries) {
-      const r = entry.rule;
-      const meta = kind === 'a11y'
-        ? `RGAA ${r.rgaa || ''} · Niveau ${r.level || ''} · ${r.themeLabel || ''}`
-        : `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
-      const status = entry.aggregateStatus;
-      const manualPrompt = entry.byPage.find(p => p.manualPrompt)?.manualPrompt;
-      const measure = entry.byPage.find(p => p.measure)?.measure || r.measure || '';
-      html += `<div class="issue status-${status}">
-        <span class="badge status-${status}">${status}</span>
-        <span class="rule-title">${escapeHtml(r.title || '')}</span>
-        <div class="rule-meta">${escapeHtml(meta)} · ${entry.totalCount} occurrence(s) sur ${entry.byPage.length} page(s)</div>
-        ${r.advice ? `<div class="advice"><strong>Conseil :</strong> ${escapeHtml(r.advice)}</div>` : ''}
-        ${manualPrompt && status === 'NT' ? `<div class="advice"><strong>Question :</strong> ${escapeHtml(manualPrompt)}</div>` : ''}
-        ${measure ? `<div class="advice"><strong>Mesure :</strong> ${escapeHtml(measure)}</div>` : ''}
-        ${entry.byPage.length > 1 ? `<ul class="pages-list">${entry.byPage.map(p => `<li>${escapeHtml(p.url)} — ${p.status}${p.count ? ` · ${p.count} occ.` : ''}</li>`).join('')}</ul>` : ''}
-      </div>`;
+    };
+
+    if (state.mode === 'a11y' || state.mode === 'both') renderSection('a11y', 'Accessibilité');
+    if (state.mode === 'eco' || state.mode === 'both') renderSection('eco', 'Écoconception');
+
+    // Add footer to each page
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(107, 122, 143);
+      doc.text('Rapport généré par l\'extension Numérique Responsable', margin, pageH - 10);
+      doc.text(`${i} / ${totalPages}`, pageW - margin, pageH - 10, { align: 'right' });
     }
-  };
-  if (state.mode === 'a11y' || state.mode === 'both') renderSection('a11y', 'Accessibilité');
-  if (state.mode === 'eco' || state.mode === 'both') renderSection('eco', 'Écoconception');
 
-  html += `<footer>Rapport généré par l'extension Numérique Responsable</footer>
-  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));<\/script>
-  </body></html>`;
-
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
+    const dateSlug = new Date().toISOString().slice(0, 10);
+    const filename = `audit-${domain}-${dateSlug}.pdf`;
+    doc.save(filename);
+  } catch (err) {
+    console.error('PDF generation failed:', err);
+    alert('Erreur lors de la génération du PDF');
+  } finally {
+    btn.disabled = false;
+    btn.querySelector('.btn-label').textContent = 'PDF';
+  }
 }
 
 // ---------------- Saved audits (chrome.storage.local) ----------------
