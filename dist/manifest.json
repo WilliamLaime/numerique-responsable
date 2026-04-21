@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Numérique Responsable",
+  "version": "1.0.0",
+  "description": "Audit d'accessibilité (RGAA) et d'écoconception (RGESN) de la page courante.",
+  "action": {
+    "default_title": "Numérique Responsable — ouvrir le panneau"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["activeTab", "scripting", "sidePanel", "tabs", "storage", "unlimitedStorage"],
+  "host_permissions": ["<all_urls>"]
+}
