@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const EXTENSION_PATH = path.resolve(__dirname, '..', '..');
+const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'dist');
 
 export const test = base.extend({
   context: async ({}, use) => {
