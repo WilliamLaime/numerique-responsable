@@ -371,7 +371,7 @@ const RULES_COULEURS = [
     "Vérifiez qu'aucune information (champ obligatoire, état, graphique) n'est véhiculée uniquement par la couleur."),
   { id: 'col-3.2-contrast-text', num: '3.2', theme: 3, level: 'AA',
     title: "Dans chaque page web, le contraste entre la couleur du texte et la couleur de son arrière-plan est-il suffisant ?",
-    advice: "Ratio ≥ 4.5:1 (texte normal) ou ≥ 3:1 (texte ≥18.66px gras ou ≥24px).",
+    advice: "Ratio >= 4.5:1 (texte normal) ou >= 3:1 (texte >= 18.66px gras ou >= 24px).",
     run: () => {
       const els = [...document.querySelectorAll('p,span,a,li,td,th,label,button,h1,h2,h3,h4,h5,h6,dt,dd,figcaption,blockquote,cite,em,strong,small,code')]
         .filter(el => isVisible(el) && el.textContent.trim() !== '' &&
