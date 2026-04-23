@@ -39,9 +39,14 @@ html, body {
 }
 
 body {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#root {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
 }
 
 /* Header */
@@ -107,9 +112,9 @@ body {
 
 /* Main */
 #main {
-  flex: 1;
   padding: 16px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 /* Screens */
