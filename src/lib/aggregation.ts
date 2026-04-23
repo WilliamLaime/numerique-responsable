@@ -2,6 +2,7 @@ import type {
   AggregatedEntry,
   AggregatedResult,
   PageResult,
+  Referential,
   RuleResult,
   StatusCode,
   StatusCounts,
@@ -10,17 +11,26 @@ import type {
 import {
   RGAA_THEMES_ORDER,
   RGESN_THEMES,
+  RGAA_TO_WCAG,
+  WCAG_GUIDELINES_ORDER,
+  WCAG_GUIDELINE_LABELS,
   STATUS_PRIORITY,
   worseStatus,
 } from './grading.js';
 
 type Kind = 'a11y' | 'eco';
 
-export function themeKeyOf(kind: Kind, rule: RuleResult): string {
-  return kind === 'a11y' ? (rule.themeLabel || '') : (rule.thematique || '');
+export function themeKeyOf(kind: Kind, rule: RuleResult, referential: Referential = 'rgaa'): string {
+  if (kind !== 'a11y') return rule.thematique || '';
+  if (referential === 'wcag') {
+    const wcag = RGAA_TO_WCAG[rule.rgaa || ''];
+    if (!wcag) return rule.themeLabel || '';
+    return wcag.guideline + ' ' + (WCAG_GUIDELINE_LABELS[wcag.guideline] || '');
+  }
+  return rule.themeLabel || '';
 }
 
-export function aggregateResults(pages: PageResult[], _mode: string): AggregatedResult {
+export function aggregateResults(pages: PageResult[], _mode: string, referential: Referential = 'rgaa'): AggregatedResult {
   const byRule: { a11y: Map<string, AggregatedEntry>; eco: Map<string, AggregatedEntry> } = {
     a11y: new Map(),
     eco: new Map(),
@@ -64,8 +74,8 @@ export function aggregateResults(pages: PageResult[], _mode: string): Aggregated
       eco: countStatuses(byRule.eco),
     },
     themeStats: {
-      a11y: groupByTheme('a11y', byRule.a11y),
-      eco: groupByTheme('eco', byRule.eco),
+      a11y: groupByTheme('a11y', byRule.a11y, referential),
+      eco: groupByTheme('eco', byRule.eco, referential),
     },
   };
 }
@@ -95,14 +105,17 @@ export function countStatuses(ruleMap: Map<string, AggregatedEntry>): StatusCoun
 export function groupByTheme(
   kind: Kind,
   ruleMap: Map<string, AggregatedEntry>,
+  referential: Referential = 'rgaa',
 ): Map<string, ThemeStat> {
-  const order = kind === 'a11y' ? RGAA_THEMES_ORDER : RGESN_THEMES;
+  const order: readonly string[] = (kind === 'a11y' && referential === 'wcag')
+    ? WCAG_GUIDELINES_ORDER
+    : kind === 'a11y' ? RGAA_THEMES_ORDER : RGESN_THEMES;
   const themes = new Map<string, ThemeStat>(
     order.map((t) => [t, { theme: t, C: 0, NC: 0, NA: 0, NT: 0, total: 0, rules: [] }]),
   );
 
   for (const entry of ruleMap.values()) {
-    const key = themeKeyOf(kind, entry.rule);
+    const key = themeKeyOf(kind, entry.rule, referential);
     if (!key) continue;
     if (!themes.has(key)) {
       themes.set(key, { theme: key, C: 0, NC: 0, NA: 0, NT: 0, total: 0, rules: [] });

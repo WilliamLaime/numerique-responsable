@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { auditStore } from '../store/auditStore';
 import { csvEscape } from '../lib/exportUtils';
 import { themeKeyOf, sortEntries } from '../lib/aggregation';
+import { RGAA_TO_WCAG } from '../lib/grading';
 import type { AggregatedEntry } from '../types/audit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,12 +16,12 @@ declare global {
 
 export function useExport() {
   const exportCsv = useCallback(() => {
-    const { pagesResults, aggregated, mode, activeStatuses, activeThemes } = auditStore.getState();
+    const { pagesResults, aggregated, mode, activeStatuses, activeThemes, referential } = auditStore.getState();
     if (!aggregated || !pagesResults.length) return;
 
     const rows: string[][] = [[
       'page_url', 'type', 'thematique', 'statut',
-      'regle_id', 'critere', 'niveau', 'titre',
+      'regle_id', 'critere', 'wcag_criterion', 'niveau', 'titre',
       'severite_eco', 'occurrences', 'mesure', 'conseil', 'question_manuelle',
     ]];
 
@@ -29,7 +30,7 @@ export function useExport() {
       if (mode !== kind && mode !== 'both') continue;
       for (const entry of aggregated.byRule[kind].values()) {
         const r = entry.rule;
-        const theme = themeKeyOf(kind, r);
+        const theme = themeKeyOf(kind, r, referential);
         if (activeThemes.size && !activeThemes.has(theme)) continue;
         for (const p of entry.byPage) {
           if (!activeStatuses.has(p.status)) continue;
@@ -40,6 +41,7 @@ export function useExport() {
             p.status,
             r.id,
             kind === 'a11y' ? (r.rgaa || '') : (r.critere || ''),
+            kind === 'a11y' ? (RGAA_TO_WCAG[r.rgaa || '']?.criterion || '') : '',
             kind === 'a11y' ? (r.level || '') : '',
             r.title || '',
             kind === 'eco' ? (r.severity || '') : '',
@@ -73,6 +75,7 @@ export function useExport() {
 
       try {
         const { jsPDF } = window.jspdf;
+        const { referential } = auditStore.getState();
         const domain = pagesResults[0] ? new URL(pagesResults[0].meta.url).hostname : 'audit';
         const date = new Date().toLocaleString('fr-FR');
         const title =
@@ -205,7 +208,7 @@ export function useExport() {
           const entries: AggregatedEntry[] = [...map.values()].filter((entry) => {
             if (!entry.aggregateStatus || !activeStatuses.has(entry.aggregateStatus)) return false;
             if (activeThemes.size) {
-              if (!activeThemes.has(themeKeyOf(kind, entry.rule))) return false;
+              if (!activeThemes.has(themeKeyOf(kind, entry.rule, referential))) return false;
             }
             return true;
           });
@@ -226,9 +229,14 @@ export function useExport() {
             const badge = kind === 'eco' && r.severity
               ? `${status} · ${r.severity.toUpperCase()}`
               : status;
-            const meta = kind === 'a11y'
-              ? `RGAA ${r.rgaa || ''} · N${r.level || ''} · ${r.themeLabel || ''}`
-              : `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
+            const meta = (() => {
+              if (kind !== 'a11y') return `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
+              if (referential === 'wcag') {
+                const wcag = RGAA_TO_WCAG[r.rgaa || ''];
+                if (wcag) return `WCAG ${wcag.criterion} · Niveau ${wcag.level}`;
+              }
+              return `RGAA ${r.rgaa || ''} · N${r.level || ''} · ${r.themeLabel || ''}`;
+            })();
             const advice = r.advice ? `Conseil : ${r.advice}` : '';
             const measure = entry.byPage.find((p) => p.measure)?.measure || r.measure || '';
             const measureTxt = measure ? `Mesure : ${measure}` : '';

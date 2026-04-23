@@ -1,6 +1,7 @@
 export type AuditMode = 'a11y' | 'eco' | 'both';
 export type AuditScope = 'site' | 'page';
 export type StatusCode = 'C' | 'NC' | 'NA' | 'NT';
+export type Referential = 'rgaa' | 'wcag';
 export type SeverityCode = 'ok' | 'mineur' | 'majeur' | 'critique';
 
 export interface RuleSample {
@@ -100,4 +101,5 @@ export interface SavedAuditEntry {
   auditedCount: number;
   attemptedCount: number;
   failedUrls: string[];
+  referential?: Referential;
 }

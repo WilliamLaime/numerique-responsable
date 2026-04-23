@@ -4,6 +4,7 @@ import type {
   AuditMode,
   AuditScope,
   PageResult,
+  Referential,
   SavedAuditEntry,
   StatusCode,
 } from '../types/audit.js';
@@ -49,6 +50,9 @@ interface AuditState {
   // Audits sauvegardés
   savedAudits: SavedAuditEntry[];
 
+  // Référentiel accessibilité
+  referential: Referential;
+
   // Onglet actif de l'écran select
   selectTab: 'new' | 'saved';
 }
@@ -63,6 +67,7 @@ interface AuditActions {
   setPageLimit: (limit: number | 'all') => void;
   setConcurrency: (n: number) => void;
   setSettleDelay: (n: number) => void;
+  setReferential: (referential: Referential) => void;
 
   // Lancement d'audit : réinitialise tout l'état d'exécution
   beginAudit: (
@@ -141,6 +146,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
 
   savedAudits: [],
   selectTab: 'new',
+  referential: 'rgaa',
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -152,6 +158,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
   setPageLimit: (pageLimit) => set({ pageLimit }),
   setConcurrency: (concurrency) => set({ concurrency }),
   setSettleDelay: (settleDelay) => set({ settleDelay }),
+  setReferential: (referential) => set({ referential }),
 
   beginAudit: (mode, scope, pageLimit, concurrency, settleDelay) =>
     set({
@@ -210,9 +217,9 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
   setAggregated: (aggregated) => set({ aggregated }),
 
   finalizeAudit: () => {
-    const { pagesResults, mode } = get();
+    const { pagesResults, mode, referential } = get();
     if (!pagesResults.length) return;
-    set({ aggregated: aggregateResults(pagesResults, mode ?? 'both') });
+    set({ aggregated: aggregateResults(pagesResults, mode ?? 'both', referential) });
   },
 
   setView: (view) => set({ view }),
@@ -248,11 +255,13 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
 
   loadSavedAudit: (entry) => {
     const pagesResults = entry.pagesResults;
-    const aggregated = aggregateResults(pagesResults, entry.mode);
+    const referential = entry.referential ?? 'rgaa';
+    const aggregated = aggregateResults(pagesResults, entry.mode, referential);
     set({
       mode: entry.mode,
       scope: entry.scope ?? 'site',
       pageLimit: entry.pageLimit ?? 'all',
+      referential,
       pagesResults,
       auditedCount: entry.auditedCount ?? pagesResults.length,
       attemptedCount: entry.attemptedCount ?? pagesResults.length,

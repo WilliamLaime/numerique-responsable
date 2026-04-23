@@ -5,11 +5,11 @@ import { useStorage } from '../../hooks/useStorage';
 import { useModal } from '../../contexts/ModalContext';
 import { jumpToElement } from '../../hooks/useAuditRunner';
 import { slimPagesResults } from '../../lib/exportUtils';
-import { gradeClass } from '../../lib/grading';
+import { gradeClass, RGAA_TO_WCAG, WCAG_GUIDELINES_ORDER, WCAG_GUIDELINE_LABELS, WCAG_UNDERSTANDING_SLUG } from '../../lib/grading';
 import { themeKeyOf, sortEntries } from '../../lib/aggregation';
 import { RGAA_THEMES_ORDER, RGESN_THEMES, STATUS_LABEL } from '../../lib/grading';
 import { nrToast } from '../../lib/toast';
-import type { AggregatedEntry, ByPageEntry, AuditMode, RuleResult, StatusCode } from '../../types/audit';
+import type { AggregatedEntry, ByPageEntry, AuditMode, Referential, RuleResult, StatusCode } from '../../types/audit';
 
 interface Props {
   active: boolean;
@@ -41,23 +41,27 @@ function ScoreRing({ score }: { score: number }) {
 
 // ── Issue card ────────────────────────────────────────────────────────────────
 
-function ruleMeta(kind: string, r: RuleResult): string {
-  return kind === 'a11y'
-    ? `RGAA ${r.rgaa} · Niveau ${r.level} · ${r.themeLabel || ''}`
-    : `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
+function ruleMeta(kind: string, r: RuleResult, referential: Referential = 'rgaa'): string {
+  if (kind !== 'a11y') return `RGESN ${r.critere || ''} · ${r.thematique || ''}`;
+  if (referential === 'wcag') {
+    const wcag = RGAA_TO_WCAG[r.rgaa || ''];
+    if (wcag) return `WCAG ${wcag.criterion} · Niveau ${wcag.level} · ${WCAG_GUIDELINE_LABELS[wcag.guideline] || wcag.guideline}`;
+  }
+  return `RGAA ${r.rgaa || ''} · Niveau ${r.level || ''} · ${r.themeLabel || ''}`;
 }
 
 interface IssueCardProps {
   entry: AggregatedEntry;
   kind: string;
   pageInfo?: ByPageEntry;
+  referential?: Referential;
 }
 
-function IssueCard({ entry, kind, pageInfo }: IssueCardProps) {
+function IssueCard({ entry, kind, pageInfo, referential = 'rgaa' }: IssueCardProps) {
   const [expanded, setExpanded] = useState(false);
   const r = entry.rule;
   const status = (pageInfo ? pageInfo.status : entry.aggregateStatus) as StatusCode;
-  const meta = ruleMeta(kind, r);
+  const meta = ruleMeta(kind, r, referential);
   const measure = pageInfo
     ? pageInfo.measure
     : entry.byPage.find((p) => p.measure)?.measure || '';
@@ -130,18 +134,38 @@ function IssueCard({ entry, kind, pageInfo }: IssueCardProps) {
         {sev && <span className={`issue-badge sev-${sev}`}>{sev}</span>}
         <div className="issue-title">
           {r.title}
-          {kind === 'a11y' && r.rgaa && (
-            <a
-              className="issue-ref-link"
-              target="_blank"
-              rel="noopener noreferrer"
-              href={`https://accessibilite.numerique.gouv.fr/methode/criteres-et-tests/#${encodeURIComponent(r.rgaa)}`}
-              title="Voir le critère sur accessibilite.numerique.gouv.fr"
-              onClick={(e) => e.stopPropagation()}
-            >
-              ↗
-            </a>
-          )}
+          {kind === 'a11y' && (() => {
+            if (referential === 'wcag') {
+              const wcag = RGAA_TO_WCAG[r.rgaa || ''];
+              if (!wcag) return null;
+              const slug = WCAG_UNDERSTANDING_SLUG[wcag.criterion] || wcag.criterion.replace(/\./g, '-');
+              return (
+                <a
+                  className="issue-ref-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href={`https://www.w3.org/WAI/WCAG21/Understanding/${slug}`}
+                  title={`Comprendre ${wcag.criterion} sur w3.org`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  ↗
+                </a>
+              );
+            }
+            if (!r.rgaa) return null;
+            return (
+              <a
+                className="issue-ref-link"
+                target="_blank"
+                rel="noopener noreferrer"
+                href={`https://accessibilite.numerique.gouv.fr/methode/criteres-et-tests/#${encodeURIComponent(r.rgaa)}`}
+                title="Voir le critère sur accessibilite.numerique.gouv.fr"
+                onClick={(e) => e.stopPropagation()}
+              >
+                ↗
+              </a>
+            );
+          })()}
           <div className="issue-meta">{meta}</div>
         </div>
         {count > 0 && <span className="issue-count">{count}</span>}
@@ -198,19 +222,21 @@ function SampleBtn({ auditId, outer, pageUrl }: { auditId: string; outer: string
 
 // ── Issues list (3 view modes) ────────────────────────────────────────────────
 
-function IssuesByRule({ entries, kind }: { entries: AggregatedEntry[]; kind: string }) {
+function IssuesByRule({ entries, kind, referential }: { entries: AggregatedEntry[]; kind: string; referential: Referential }) {
   const sorted = sortEntries([...entries]);
   return (
     <>
       {sorted.map((e) => (
-        <IssueCard key={e.rule.id} entry={e} kind={kind} />
+        <IssueCard key={e.rule.id} entry={e} kind={kind} referential={referential} />
       ))}
     </>
   );
 }
 
-function IssuesByTheme({ entries, kind }: { entries: AggregatedEntry[]; kind: string }) {
-  const order = kind === 'a11y' ? RGAA_THEMES_ORDER : RGESN_THEMES;
+function IssuesByTheme({ entries, kind, referential }: { entries: AggregatedEntry[]; kind: string; referential: Referential }) {
+  const order: readonly string[] = (kind === 'a11y' && referential === 'wcag')
+    ? WCAG_GUIDELINES_ORDER
+    : kind === 'a11y' ? RGAA_THEMES_ORDER : RGESN_THEMES;
   const themeStats = useAuditStore((s) => s.aggregated!.themeStats[kind as 'a11y' | 'eco']);
   const entryIds = new Set(entries.map((e) => e.rule.id));
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -245,7 +271,7 @@ function IssuesByTheme({ entries, kind }: { entries: AggregatedEntry[]; kind: st
           </div>
           <div className="theme-section-body">
             {filtered.map((e) => (
-              <IssueCard key={e.rule.id} entry={e} kind={kind} />
+              <IssueCard key={e.rule.id} entry={e} kind={kind} referential={referential} />
             ))}
           </div>
         </div>
@@ -259,7 +285,7 @@ function IssuesByTheme({ entries, kind }: { entries: AggregatedEntry[]; kind: st
   return <>{sections}</>;
 }
 
-function IssuesByPage({ entries, kind }: { entries: AggregatedEntry[]; kind: string }) {
+function IssuesByPage({ entries, kind, referential }: { entries: AggregatedEntry[]; kind: string; referential: Referential }) {
   const activeStatuses = useAuditStore((s) => s.activeStatuses);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -307,7 +333,7 @@ function IssuesByPage({ entries, kind }: { entries: AggregatedEntry[]; kind: str
             </div>
             <div className="page-group-body">
               {g.items.map(({ entry, pageInfo }) => (
-                <IssueCard key={entry.rule.id + pageInfo.url} entry={entry} kind={kind} pageInfo={pageInfo} />
+                <IssueCard key={entry.rule.id + pageInfo.url} entry={entry} kind={kind} pageInfo={pageInfo} referential={referential} />
               ))}
             </div>
           </div>
@@ -321,6 +347,7 @@ function IssuesByPage({ entries, kind }: { entries: AggregatedEntry[]; kind: str
 
 export default function ResultsScreen({ active, startAudit }: Props) {
   const mode = useAuditStore((s) => s.mode);
+  const referential = useAuditStore((s) => s.referential);
   const aggregated = useAuditStore((s) => s.aggregated);
   const pagesResults = useAuditStore((s) => s.pagesResults);
   const auditedCount = useAuditStore((s) => s.auditedCount);
@@ -373,6 +400,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
         auditedCount,
         attemptedCount,
         failedUrls,
+        referential,
       });
       nrToast('✓ Audit sauvegardé dans Mes audits');
       setSelectTab('saved');
@@ -402,7 +430,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const entries = [...ruleMap.values()].filter((e) => {
     if (!e.aggregateStatus || !activeStatuses.has(e.aggregateStatus)) return false;
     if (view !== 'theme' && activeThemes.size) {
-      if (!activeThemes.has(themeKeyOf(kind, e.rule))) return false;
+      if (!activeThemes.has(themeKeyOf(kind, e.rule, referential))) return false;
     }
     return true;
   });
@@ -587,11 +615,11 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <span className="emoji">🎉</span>Aucun critère dans ce filtre.
           </div>
         ) : view === 'theme' ? (
-          <IssuesByTheme entries={entries} kind={kind} />
+          <IssuesByTheme entries={entries} kind={kind} referential={referential} />
         ) : view === 'rule' ? (
-          <IssuesByRule entries={entries} kind={kind} />
+          <IssuesByRule entries={entries} kind={kind} referential={referential} />
         ) : (
-          <IssuesByPage entries={entries} kind={kind} />
+          <IssuesByPage entries={entries} kind={kind} referential={referential} />
         )}
       </div>
 

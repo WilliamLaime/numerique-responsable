@@ -16,6 +16,8 @@ export default function SelectScreen({ active, startAudit }: Props) {
   const setScope = useAuditStore((s) => s.setScope);
   const pageLimit = useAuditStore((s) => s.pageLimit);
   const setPageLimit = useAuditStore((s) => s.setPageLimit);
+  const referential = useAuditStore((s) => s.referential);
+  const setReferential = useAuditStore((s) => s.setReferential);
   const savedAudits = useAuditStore((s) => s.savedAudits);
   const loadSavedAudit = useAuditStore((s) => s.loadSavedAudit);
 
@@ -153,6 +155,38 @@ export default function SelectScreen({ active, startAudit }: Props) {
             </label>
           </div>
         </details>
+
+        <div className="field" id="a11y-referential">
+          <label className="field-label">Référentiel accessibilité</label>
+          <div className="scope-options">
+            <label className="scope-option">
+              <input
+                type="radio"
+                name="referential"
+                value="rgaa"
+                checked={referential === 'rgaa'}
+                onChange={() => setReferential('rgaa')}
+              />
+              <span>
+                <strong>RGAA 4.1</strong>
+                <em>Référentiel Général d'Amélioration de l'Accessibilité (France)</em>
+              </span>
+            </label>
+            <label className="scope-option">
+              <input
+                type="radio"
+                name="referential"
+                value="wcag"
+                checked={referential === 'wcag'}
+                onChange={() => setReferential('wcag')}
+              />
+              <span>
+                <strong>WCAG 2.1</strong>
+                <em>Web Content Accessibility Guidelines (W3C — international)</em>
+              </span>
+            </label>
+          </div>
+        </div>
 
         <h3 className="subsection">Type d'audit</h3>
         <div className="audit-cards">
