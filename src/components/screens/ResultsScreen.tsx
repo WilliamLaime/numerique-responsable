@@ -3,7 +3,7 @@ import { useAuditStore, auditStore } from '../../store/auditStore';
 import { useExport } from '../../hooks/useExport';
 import { useStorage } from '../../hooks/useStorage';
 import { useModal } from '../../contexts/ModalContext';
-import { jumpToElement } from '../../hooks/useAuditRunner';
+import { jumpToElement, toggleTabOrder } from '../../hooks/useAuditRunner';
 import { slimPagesResults } from '../../lib/exportUtils';
 import { gradeClass, RGAA_TO_WCAG, WCAG_GUIDELINES_ORDER, WCAG_GUIDELINE_LABELS, WCAG_UNDERSTANDING_SLUG } from '../../lib/grading';
 import { themeKeyOf, sortEntries } from '../../lib/aggregation';
@@ -582,6 +582,14 @@ export default function ResultsScreen({ active, startAudit }: Props) {
           >
             <span className="btn-icon" aria-hidden="true">📑</span>
             <span className="btn-label">{pdfLoading ? 'En cours…' : 'PDF'}</span>
+          </button>
+          <button
+            className="action-btn"
+            title="Visualiser l'ordre de tabulation sur la page"
+            onClick={() => void toggleTabOrder()}
+          >
+            <span className="btn-icon" aria-hidden="true">⇥</span>
+            <span className="btn-label">Tab order</span>
           </button>
         </div>
         <button
