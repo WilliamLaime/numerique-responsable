@@ -373,6 +373,17 @@ body {
   color: var(--color-text-muted);
 }
 
+.score-legend .legend-coverage {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.score-legend .legend-coverage strong {
+  color: var(--color-text);
+}
+
 /* Tabs */
 .tabs {
   display: flex;

@@ -11,6 +11,9 @@ import { RGAA_THEMES_ORDER, RGESN_THEMES, STATUS_LABEL } from '../../lib/grading
 import { nrToast } from '../../lib/toast';
 import type { AggregatedEntry, ByPageEntry, AuditMode, Referential, RuleResult, StatusCode } from '../../types/audit';
 
+const TOOL_A11Y_COVERAGE = Math.round(64 / 107 * 100); // 60
+const TOOL_ECO_COVERAGE  = Math.round(18 / 19 * 100);  // 95
+
 interface Props {
   active: boolean;
   startAudit: (mode: AuditMode) => Promise<void>;
@@ -529,6 +532,12 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const statusCounts = effectiveStatusCounts;
   const scores = effectiveScores;
 
+  const auditCoverage = (k: 'a11y' | 'eco'): number => {
+    const { C, NC, NA, NT } = statusCounts[k];
+    const total = C + NC + NA + NT;
+    return total ? Math.round((C + NC + NA) / total * 100) : 0;
+  };
+
   return (
     <section id="screen-results" className={`screen${active ? ' active' : ''}`}>
       {/* Header */}
@@ -620,6 +629,18 @@ export default function ResultsScreen({ active, startAudit }: Props) {
         <p className="legend-title">ℹ️ Calcul du score</p>
         <p className="legend-formula">Score = Conformes ÷ (Conformes + Non conformes) × 100</p>
         <p className="legend-note">Les critères Non testé (NT) et Non applicable (NA) ne sont pas comptabilisés dans le score.</p>
+        {(mode === 'a11y' || mode === 'both') && (
+          <p className="legend-coverage">
+            Accessibilité — <strong>{auditCoverage('a11y')}%</strong> des critères testés lors de cet audit
+            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_A11Y_COVERAGE}%</strong> du RGAA (107 critères)
+          </p>
+        )}
+        {(mode === 'eco' || mode === 'both') && (
+          <p className="legend-coverage">
+            Écoconception — <strong>{auditCoverage('eco')}%</strong> des critères testés lors de cet audit
+            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_ECO_COVERAGE}%</strong> du RGESN (79 critères)
+          </p>
+        )}
       </div>
 
       {/* View toggle */}
