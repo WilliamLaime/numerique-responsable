@@ -58,6 +58,9 @@ interface AuditState {
 
   // URLs personnalisées
   customUrls: string[];
+
+  // Validations manuelles des critères NT
+  manualOverrides: Record<string, 'C' | 'NC'>;
 }
 
 interface AuditActions {
@@ -117,6 +120,10 @@ interface AuditActions {
 
   // URLs personnalisées
   setCustomUrls: (urls: string[]) => void;
+
+  // Validations manuelles des critères NT
+  setManualOverride: (ruleId: string, status: 'C' | 'NC') => void;
+  clearManualOverride: (ruleId: string) => void;
 }
 
 const DEFAULT_ACTIVE_STATUSES: StatusCode[] = ['NC'];
@@ -154,6 +161,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
   selectTab: 'new',
   referential: 'rgaa',
   customUrls: [],
+  manualOverrides: {},
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -176,6 +184,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
       settleDelay,
       pagesResults: [],
       aggregated: null,
+      manualOverrides: {},
       activeThemes: new Set(),
       activeStatuses: new Set(DEFAULT_ACTIVE_STATUSES),
       activeTab: mode === 'eco' ? 'eco' : 'a11y',
@@ -260,6 +269,14 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
   setSavedAudits: (savedAudits) => set({ savedAudits }),
   setSelectTab: (selectTab) => set({ selectTab }),
   setCustomUrls: (customUrls) => set({ customUrls }),
+  setManualOverride: (ruleId, status) =>
+    set((s) => ({ manualOverrides: { ...s.manualOverrides, [ruleId]: status } })),
+  clearManualOverride: (ruleId) =>
+    set((s) => {
+      const next = { ...s.manualOverrides };
+      delete next[ruleId];
+      return { manualOverrides: next };
+    }),
 
   loadSavedAudit: (entry) => {
     const pagesResults = entry.pagesResults;

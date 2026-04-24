@@ -494,7 +494,65 @@ body {
   margin-bottom: 10px;
   font-size: 12px;
   font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
+
+.nt-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.nt-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.nt-btn:hover { opacity: 0.85; }
+.nt-c  { background: var(--color-success-bg); color: var(--color-success); }
+.nt-nc { background: var(--color-critical-bg); color: var(--color-critical); }
+
+.nt-validated {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.nt-validated-badge {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.nt-validated-badge.status-C  { color: var(--color-success); }
+.nt-validated-badge.status-NC { color: var(--color-critical); }
+
+.nt-reset-btn {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.nt-reset-btn:hover { border-color: var(--color-text-muted); color: var(--color-text); }
 
 .mini-badge {
   display: inline-block;
