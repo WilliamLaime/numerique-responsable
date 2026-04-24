@@ -11,7 +11,7 @@ import { RGAA_THEMES_ORDER, RGESN_THEMES, STATUS_LABEL } from '../../lib/grading
 import { nrToast } from '../../lib/toast';
 import type { AggregatedEntry, ByPageEntry, AuditMode, Referential, RuleResult, StatusCode } from '../../types/audit';
 
-const TOOL_A11Y_COVERAGE = Math.round(64 / 107 * 100); // 60
+const TOOL_A11Y_COVERAGE = Math.round(63 / 106 * 100); // 59
 const TOOL_ECO_COVERAGE  = Math.round(18 / 19 * 100);  // 95
 
 interface Props {
@@ -634,7 +634,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
         {(mode === 'a11y' || mode === 'both') && (
           <p className="legend-coverage">
             Accessibilité — <strong>{auditCoverage('a11y')}%</strong> des critères testés lors de cet audit
-            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_A11Y_COVERAGE}%</strong> du RGAA (107 critères)
+            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_A11Y_COVERAGE}%</strong> du RGAA (106 critères)
           </p>
         )}
         {(mode === 'eco' || mode === 'both') && (
