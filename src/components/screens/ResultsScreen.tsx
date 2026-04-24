@@ -419,6 +419,41 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const { nrPrompt } = useModal();
   const [pdfLoading, setPdfLoading] = useState(false);
 
+  const effectiveStatusCounts = useMemo(() => {
+    const empty = () => ({ C: 0, NC: 0, NA: 0, NT: 0 });
+    if (!aggregated) return { a11y: empty(), eco: empty() };
+    const compute = (rm: Map<string, AggregatedEntry>) => {
+      const c = { C: 0, NC: 0, NA: 0, NT: 0 };
+      for (const e of rm.values()) {
+        const s = ((manualOverrides ?? {})[e.rule.id] ?? e.aggregateStatus) as StatusCode;
+        if (s && s in c) c[s]++;
+      }
+      return c;
+    };
+    return {
+      a11y: compute(aggregated.byRule.a11y),
+      eco: compute(aggregated.byRule.eco),
+    };
+  }, [aggregated, manualOverrides]);
+
+  const effectiveScores = useMemo(() => {
+    if (!aggregated) return { a11y: 100, eco: 100 };
+    const compute = (rm: Map<string, AggregatedEntry>) => {
+      let c = 0, nc = 0;
+      for (const e of rm.values()) {
+        const s = (manualOverrides ?? {})[e.rule.id] ?? e.aggregateStatus;
+        if (s === 'C') c++;
+        else if (s === 'NC') nc++;
+      }
+      const d = c + nc;
+      return d ? Math.round((c / d) * 100) : 100;
+    };
+    return {
+      a11y: compute(aggregated.byRule.a11y),
+      eco: compute(aggregated.byRule.eco),
+    };
+  }, [aggregated, manualOverrides]);
+
   if (!aggregated || !mode) return null;
 
   const urlLabel =
@@ -495,39 +530,6 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const themeMap = aggregated.themeStats[kind];
   const themeOptions = [...themeMap.entries()].filter(([, v]) => v.total > 0);
   const themeTotal = themeOptions.reduce((a, [, v]) => a + v.total, 0);
-
-  // Scores et compteurs recalculés avec les overrides
-  const effectiveStatusCounts = useMemo(() => {
-    const compute = (rm: typeof ruleMap) => {
-      const c = { C: 0, NC: 0, NA: 0, NT: 0 };
-      for (const e of rm.values()) {
-        const s = (manualOverrides[e.rule.id] ?? e.aggregateStatus) as StatusCode;
-        if (s && s in c) c[s]++;
-      }
-      return c;
-    };
-    return {
-      a11y: compute(aggregated.byRule.a11y),
-      eco: compute(aggregated.byRule.eco),
-    };
-  }, [aggregated, manualOverrides]);
-
-  const effectiveScores = useMemo(() => {
-    const compute = (rm: typeof ruleMap) => {
-      let c = 0, nc = 0;
-      for (const e of rm.values()) {
-        const s = manualOverrides[e.rule.id] ?? e.aggregateStatus;
-        if (s === 'C') c++;
-        else if (s === 'NC') nc++;
-      }
-      const d = c + nc;
-      return d ? Math.round((c / d) * 100) : 100;
-    };
-    return {
-      a11y: compute(aggregated.byRule.a11y),
-      eco: compute(aggregated.byRule.eco),
-    };
-  }, [aggregated, manualOverrides]);
 
   const statusCounts = effectiveStatusCounts;
   const scores = effectiveScores;
