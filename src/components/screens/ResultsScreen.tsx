@@ -418,6 +418,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const { saveAudit } = useStorage();
   const { nrPrompt } = useModal();
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [tabOrderActive, setTabOrderActive] = useState(false);
 
   const effectiveStatusCounts = useMemo(() => {
     const empty = () => ({ C: 0, NC: 0, NA: 0, NT: 0 });
@@ -584,9 +585,12 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <span className="btn-label">{pdfLoading ? 'En cours…' : 'PDF'}</span>
           </button>
           <button
-            className="action-btn"
+            className={`action-btn${tabOrderActive ? ' active' : ''}`}
             title="Visualiser l'ordre de tabulation sur la page"
-            onClick={() => void toggleTabOrder()}
+            onClick={async () => {
+              const active = await toggleTabOrder();
+              setTabOrderActive(active ?? false);
+            }}
           >
             <span className="btn-icon" aria-hidden="true">⇥</span>
             <span className="btn-label">Tab order</span>

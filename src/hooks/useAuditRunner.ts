@@ -180,17 +180,19 @@ export async function jumpToElement(pageUrl: string, auditId: string): Promise<v
   }
 }
 
-export async function toggleTabOrder(): Promise<void> {
+export async function toggleTabOrder(): Promise<boolean> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const tabId = tab.id!;
     await chrome.scripting.executeScript({ target: { tabId }, files: ['taborder.js'] });
-    await chrome.scripting.executeScript({
+    const [res] = await chrome.scripting.executeScript({
       target: { tabId },
       func: () => (globalThis as any).__nrTabOrder(),
     });
+    return res?.result ?? false;
   } catch (e) {
     console.error('toggleTabOrder failed', e);
+    return false;
   }
 }
 

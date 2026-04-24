@@ -1366,6 +1366,12 @@ body {
   color: var(--color-primary);
 }
 
+.action-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
 .action-btn .btn-icon { font-size: 13px; line-height: 1; }
 
 .action-btn.save {
