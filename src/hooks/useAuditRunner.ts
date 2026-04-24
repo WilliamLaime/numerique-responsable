@@ -204,13 +204,24 @@ export function useAuditRunner() {
         }
 
         auditStore.getState().setLoadingText(
-          scope === 'site' ? 'Préparation du crawl...' : 'Analyse en cours...',
+          scope === 'site' ? 'Préparation du crawl...' : scope === 'urls' ? 'Validation des URLs...' : 'Analyse en cours...',
         );
 
-        const urls =
-          scope === 'page'
-            ? [currentTab.url]
-            : await discoverUrls(currentTab.url, pageLimit);
+        let urls: string[] = [];
+        if (scope === 'page') {
+          urls = [currentTab.url];
+        } else if (scope === 'urls') {
+          const custom = st.customUrls
+            .map((u) => normalizeUrl(u.trim()))
+            .filter((u) => u && new URL(u).origin === new URL(currentTab.url).origin);
+          if (!custom.length) {
+            auditStore.getState().setScreen('error', 'Aucune URL valide du même domaine trouvée.');
+            return;
+          }
+          urls = custom;
+        } else {
+          urls = await discoverUrls(currentTab.url, pageLimit);
+        }
 
         if (!urls.length) {
           auditStore.getState().setScreen('error', 'Aucune URL trouvée à auditer.');

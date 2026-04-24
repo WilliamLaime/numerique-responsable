@@ -55,6 +55,9 @@ interface AuditState {
 
   // Onglet actif de l'écran select
   selectTab: 'new' | 'saved';
+
+  // URLs personnalisées
+  customUrls: string[];
 }
 
 interface AuditActions {
@@ -111,6 +114,9 @@ interface AuditActions {
 
   // Onglet actif de l'écran select
   setSelectTab: (tab: 'new' | 'saved') => void;
+
+  // URLs personnalisées
+  setCustomUrls: (urls: string[]) => void;
 }
 
 const DEFAULT_ACTIVE_STATUSES: StatusCode[] = ['NC'];
@@ -147,6 +153,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
   savedAudits: [],
   selectTab: 'new',
   referential: 'rgaa',
+  customUrls: [],
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -252,6 +259,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
 
   setSavedAudits: (savedAudits) => set({ savedAudits }),
   setSelectTab: (selectTab) => set({ selectTab }),
+  setCustomUrls: (customUrls) => set({ customUrls }),
 
   loadSavedAudit: (entry) => {
     const pagesResults = entry.pagesResults;

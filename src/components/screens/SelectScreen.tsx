@@ -14,6 +14,8 @@ export default function SelectScreen({ active, startAudit }: Props) {
   const setSelectTab = useAuditStore((s) => s.setSelectTab);
   const scope = useAuditStore((s) => s.scope);
   const setScope = useAuditStore((s) => s.setScope);
+  const customUrls = useAuditStore((s) => s.customUrls);
+  const setCustomUrls = useAuditStore((s) => s.setCustomUrls);
   const pageLimit = useAuditStore((s) => s.pageLimit);
   const setPageLimit = useAuditStore((s) => s.setPageLimit);
   const referential = useAuditStore((s) => s.referential);
@@ -102,8 +104,36 @@ export default function SelectScreen({ active, startAudit }: Props) {
                 <em>Audit rapide de l'onglet actif</em>
               </span>
             </label>
+            <label className="scope-option">
+              <input
+                type="radio"
+                name="scope"
+                value="urls"
+                checked={scope === 'urls'}
+                onChange={() => setScope('urls')}
+              />
+              <span>
+                <strong>URLs personnalisées</strong>
+                <em>Auditez les URLs que vous choisissez</em>
+              </span>
+            </label>
           </div>
         </div>
+
+        {scope === 'urls' && (
+          <div className="field" id="custom-urls">
+            <label className="field-label" htmlFor="custom-urls-input">URLs à auditer (une par ligne)</label>
+            <textarea
+              id="custom-urls-input"
+              placeholder="https://example.com&#10;https://example.com/about&#10;https://example.com/contact"
+              value={customUrls.join('\n')}
+              onChange={(e) => setCustomUrls(e.target.value.split('\n').filter((u) => u.trim()))}
+              rows={6}
+              style={{ fontFamily: 'monospace', fontSize: '12px' }}
+            />
+            <em className="muted">Saisissez une URL par ligne. Seules les URLs du même domaine seront auditées.</em>
+          </div>
+        )}
 
         {scope === 'site' && (
           <div className="field" id="crawl-options">

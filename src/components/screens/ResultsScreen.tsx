@@ -34,7 +34,7 @@ function ScoreRing({ score }: { score: number }) {
           strokeDashoffset={offset}
         />
       </svg>
-      <div className="value">{score}</div>
+      <div className="value">{score}<span className="percent">%</span></div>
     </div>
   );
 }
@@ -266,6 +266,7 @@ function IssuesByTheme({ entries, kind, referential }: { entries: AggregatedEntr
             <span className="theme-section-dist">
               <span className="theme-stat C" title="Conforme">✓ {theme.C}</span>
               <span className="theme-stat NC" title="Non conforme">✗ {theme.NC}</span>
+              <span className="theme-stat NT" title="Non testé">? {theme.NT}</span>
               <span className="theme-stat NA" title="Non applicable">− {theme.NA}</span>
             </span>
           </div>
@@ -511,6 +512,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <div className="breakdown status-breakdown">
               <span className="status-pill C" title="Conforme">✓ {statusCounts.a11y.C}</span>
               <span className="status-pill NC" title="Non conforme">✗ {statusCounts.a11y.NC}</span>
+              <span className="status-pill NT" title="Non testé">? {statusCounts.a11y.NT}</span>
               <span className="status-pill NA" title="Non applicable">− {statusCounts.a11y.NA}</span>
             </div>
           </div>
@@ -522,10 +524,18 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <div className="breakdown status-breakdown">
               <span className="status-pill C" title="Conforme">✓ {statusCounts.eco.C}</span>
               <span className="status-pill NC" title="Non conforme">✗ {statusCounts.eco.NC}</span>
+              <span className="status-pill NT" title="Non testé">? {statusCounts.eco.NT}</span>
               <span className="status-pill NA" title="Non applicable">− {statusCounts.eco.NA}</span>
             </div>
           </div>
         )}
+      </div>
+
+      {/* Score explanation */}
+      <div className="score-legend">
+        <p className="legend-title">ℹ️ Calcul du score</p>
+        <p className="legend-formula">Score = Conformes ÷ (Conformes + Non conformes) × 100</p>
+        <p className="legend-note">Les critères Non testé (NT) et Non applicable (NA) ne sont pas comptabilisés dans le score.</p>
       </div>
 
       {/* View toggle */}
@@ -565,7 +575,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
 
       {/* Status filters */}
       <div id="status-filters" className="status-filters" style={{ display: 'flex' }}>
-        {(['NC', 'C', 'NA'] as StatusCode[]).map((code) => (
+        {(['NC', 'NT', 'C', 'NA'] as StatusCode[]).map((code) => (
           <button
             key={code}
             className={`status-chip ${code}${activeStatuses.has(code) ? ' active' : ''}`}
