@@ -5,10 +5,15 @@
 
 globalThis.__nrTabOrder = function () {
   const OVERLAY_ID = '__nr-taborder-overlay';
-  const existing = document.getElementById(OVERLAY_ID);
+  const CLOSE_ID   = '__nr-taborder-close';
 
-  if (existing) {
-    existing.remove();
+  const cleanup = () => {
+    document.getElementById(OVERLAY_ID)?.remove();
+    document.getElementById(CLOSE_ID)?.remove();
+  };
+
+  if (document.getElementById(OVERLAY_ID)) {
+    cleanup();
     return false;
   }
 
@@ -24,16 +29,13 @@ globalThis.__nrTabOrder = function () {
     'details > summary'
   ];
 
-  const selector = focusable.join(',');
-  const all = [...document.querySelectorAll(selector)];
-
+  const all = [...document.querySelectorAll(focusable.join(','))];
   if (!all.length) return false;
 
   const visible = all.filter(el => {
     const rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0 && window.getComputedStyle(el).visibility !== 'hidden';
   });
-
   if (!visible.length) return false;
 
   visible.sort((a, b) => {
@@ -45,25 +47,30 @@ globalThis.__nrTabOrder = function () {
     return 0;
   });
 
+  // Overlay en position absolute — les badges scrollent avec la page
   const overlay = document.createElement('div');
   overlay.id = OVERLAY_ID;
   overlay.style.cssText = `
-    position: fixed;
+    position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    width: 0;
+    height: 0;
     pointer-events: none;
     z-index: 2147483647;
   `;
 
+  const scrollX = window.scrollX || window.pageXOffset;
+  const scrollY = window.scrollY || window.pageYOffset;
+
   visible.forEach((el, index) => {
     const rect = el.getBoundingClientRect();
     const badge = document.createElement('div');
+    // Coordonnées document = coordonnées viewport + scroll
     badge.style.cssText = `
-      position: fixed;
-      top: ${rect.top + window.scrollY}px;
-      left: ${rect.left + window.scrollX}px;
+      position: absolute;
+      top: ${rect.top + scrollY}px;
+      left: ${rect.left + scrollX}px;
       width: 22px;
       height: 22px;
       background: #2d7a4f;
@@ -77,12 +84,15 @@ globalThis.__nrTabOrder = function () {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
       pointer-events: none;
+      transform: translate(-50%, -50%);
     `;
     badge.textContent = String(index + 1);
     overlay.appendChild(badge);
   });
 
+  // Bouton fermer en position fixed (séparé de l'overlay) — reste visible au scroll
   const closeBtn = document.createElement('button');
+  closeBtn.id = CLOSE_ID;
   closeBtn.style.cssText = `
     position: fixed;
     top: 16px;
@@ -95,25 +105,21 @@ globalThis.__nrTabOrder = function () {
     border-radius: 50%;
     cursor: pointer;
     font-size: 18px;
+    line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 2147483648;
     font-weight: bold;
+    pointer-events: all;
+    font-family: -apple-system, sans-serif;
   `;
   closeBtn.textContent = '✕';
-  closeBtn.title = 'Fermer l\'affichage de l\'ordre de tabulation';
-  closeBtn.onclick = (e) => {
-    e.stopPropagation();
-    overlay.remove();
-  };
-  closeBtn.onkeydown = (e) => {
-    if (e.key === 'Escape' || e.key === 'Enter') {
-      overlay.remove();
-    }
-  };
-  overlay.appendChild(closeBtn);
+  closeBtn.title = "Fermer l'affichage de l'ordre de tabulation";
+  closeBtn.onclick = (e) => { e.stopPropagation(); cleanup(); };
+  closeBtn.onkeydown = (e) => { if (e.key === 'Escape' || e.key === 'Enter') cleanup(); };
 
   document.body.appendChild(overlay);
+  document.body.appendChild(closeBtn);
   return true;
 };
