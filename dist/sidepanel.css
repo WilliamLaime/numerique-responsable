@@ -706,6 +706,124 @@ body {
   color: var(--color-text);
 }
 
+/* URL picker */
+.url-input-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.url-text-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  transition: border-color 0.15s;
+}
+
+.url-text-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.url-text-input::placeholder { color: var(--color-text-muted); }
+
+.url-add-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.url-add-btn:disabled { opacity: 0.35; cursor: default; }
+.url-add-btn:not(:disabled):hover { opacity: 0.85; }
+
+.url-count {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  padding: 1px 7px;
+  border-radius: 20px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.url-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.url-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.url-chip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: monospace;
+  color: var(--color-accent);
+}
+
+.url-chip-remove {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.url-chip-remove:hover { background: var(--color-critical-bg); color: var(--color-critical); }
+
+.url-empty-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 10px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
 .subsection {
   margin: 16px 0 10px;
   font-size: 11px;

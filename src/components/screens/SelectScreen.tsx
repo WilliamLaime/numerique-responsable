@@ -1,8 +1,85 @@
+import { useState, useRef } from 'react';
 import { useAuditStore } from '../../store/auditStore';
 import { useSettings } from '../../hooks/useSettings';
 import { useStorage } from '../../hooks/useStorage';
 import { useModal } from '../../contexts/ModalContext';
 import type { AuditMode, SavedAuditEntry } from '../../types/audit';
+
+function UrlPicker({ urls, onChange }: { urls: string[]; onChange: (urls: string[]) => void }) {
+  const [input, setInput] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const addUrl = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed || urls.includes(trimmed)) return;
+    try { new URL(trimmed); } catch { return; }
+    onChange([...urls, trimmed]);
+    setInput('');
+  };
+
+  const removeUrl = (url: string) => onChange(urls.filter((u) => u !== url));
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      addUrl(input);
+    }
+  };
+
+  return (
+    <div className="url-picker field">
+      <span className="field-label">
+        Pages à auditer
+        {urls.length > 0 && <span className="url-count">{urls.length} URL{urls.length > 1 ? 's' : ''}</span>}
+      </span>
+      <div className="url-input-row">
+        <input
+          ref={inputRef}
+          type="url"
+          className="url-text-input"
+          placeholder="https://example.com/page"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            e.preventDefault();
+            const lines = e.clipboardData.getData('text').split(/[\n,]+/);
+            lines.forEach((l) => addUrl(l));
+          }}
+        />
+        <button
+          type="button"
+          className="url-add-btn"
+          onClick={() => addUrl(input)}
+          disabled={!input.trim()}
+          aria-label="Ajouter l'URL"
+        >
+          +
+        </button>
+      </div>
+      {urls.length > 0 && (
+        <ul className="url-list">
+          {urls.map((url) => (
+            <li key={url} className="url-chip">
+              <span className="url-chip-text" title={url}>{url}</span>
+              <button
+                type="button"
+                className="url-chip-remove"
+                onClick={() => removeUrl(url)}
+                aria-label={`Retirer ${url}`}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {urls.length === 0 && (
+        <p className="url-empty-hint">Collez une ou plusieurs URLs, une par ligne ou séparées par des virgules.</p>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   active: boolean;
@@ -120,20 +197,7 @@ export default function SelectScreen({ active, startAudit }: Props) {
           </div>
         </div>
 
-        {scope === 'urls' && (
-          <div className="field" id="custom-urls">
-            <label className="field-label" htmlFor="custom-urls-input">URLs à auditer (une par ligne)</label>
-            <textarea
-              id="custom-urls-input"
-              placeholder="https://example.com&#10;https://example.com/about&#10;https://example.com/contact"
-              value={customUrls.join('\n')}
-              onChange={(e) => setCustomUrls(e.target.value.split('\n').filter((u) => u.trim()))}
-              rows={6}
-              style={{ fontFamily: 'monospace', fontSize: '12px' }}
-            />
-            <em className="muted">Saisissez une URL par ligne. Seules les URLs du même domaine seront auditées.</em>
-          </div>
-        )}
+        {scope === 'urls' && <UrlPicker urls={customUrls} onChange={setCustomUrls} />}
 
         {scope === 'site' && (
           <div className="field" id="crawl-options">
