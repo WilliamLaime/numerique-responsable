@@ -474,8 +474,10 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const kind = activeTab as 'a11y' | 'eco';
   const ruleMap = aggregated.byRule[kind];
 
-  const effectiveStatus = (e: AggregatedEntry): StatusCode =>
-    (manualOverrides[e.rule.id] ?? e.aggregateStatus) as StatusCode;
+  const effectiveStatus = (e: AggregatedEntry): StatusCode => {
+    const overrides = manualOverrides ?? {};
+    return (overrides[e.rule.id] ?? e.aggregateStatus) as StatusCode;
+  };
 
   const entries = [...ruleMap.values()].filter((e) => {
     const es = effectiveStatus(e);

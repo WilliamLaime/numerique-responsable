@@ -307,7 +307,8 @@ export function useAuditRunner() {
         auditStore.getState().setProgressUrl('Terminé');
         auditStore.getState().finalizeAudit();
 
-        if (!auditStore.getState().pagesResults.length) {
+        const { pagesResults, aggregated } = auditStore.getState();
+        if (!pagesResults.length || !aggregated) {
           auditStore
             .getState()
             .setScreen('error', "L'audit n'a retourné aucun résultat exploitable.");

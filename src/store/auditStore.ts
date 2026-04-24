@@ -126,7 +126,7 @@ interface AuditActions {
   clearManualOverride: (ruleId: string) => void;
 }
 
-const DEFAULT_ACTIVE_STATUSES: StatusCode[] = ['NC'];
+const DEFAULT_ACTIVE_STATUSES: StatusCode[] = ['NC', 'NT'];
 
 export const auditStore = createStore<AuditState & AuditActions>((set, get) => ({
   // ── État initial ──────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
       return {
         activeStatuses: next.size
           ? next
-          : new Set<StatusCode>(['C', 'NC', 'NA']),
+          : new Set<StatusCode>(['C', 'NC', 'NT', 'NA']),
       };
     }),
 
