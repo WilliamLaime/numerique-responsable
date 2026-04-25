@@ -356,7 +356,7 @@ const RULES_CADRES = [
     title: "Chaque cadre en ligne a-t-il un titre ?",
     advice: "Ajoutez un attribut title explicite à chaque <iframe>.",
     run: () => {
-      const frames = [...document.querySelectorAll('iframe')];
+      const frames = [...document.querySelectorAll('iframe')].filter(f => !inNoscript(f));
       if (!frames.length) return { status: 'NA', count: 0, measure: 'Aucun iframe' };
       const bad = frames.filter(f => !f.getAttribute('title')?.trim() && !f.getAttribute('aria-label')?.trim() && !f.getAttribute('aria-labelledby')?.trim());
       return bad.length
@@ -367,7 +367,7 @@ const RULES_CADRES = [
     title: "Pour chaque cadre en ligne ayant un titre, ce titre est-il pertinent ?",
     advice: "Le title d'un iframe doit décrire son contenu (ex: « Carte interactive »).",
     run: () => {
-      const frames = [...document.querySelectorAll('iframe[title]')];
+      const frames = [...document.querySelectorAll('iframe[title]')].filter(f => !inNoscript(f));
       if (!frames.length) return { status: 'NA', count: 0 };
       const generic = /^(iframe|frame|content|embed|sans titre|untitled)$/i;
       const bad = frames.filter(f => generic.test(f.getAttribute('title').trim()));

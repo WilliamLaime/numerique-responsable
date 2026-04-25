@@ -373,6 +373,17 @@ body {
   color: var(--color-text-muted);
 }
 
+.score-legend .legend-coverage {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+
+.score-legend .legend-coverage strong {
+  color: var(--color-text);
+}
+
 /* Tabs */
 .tabs {
   display: flex;
@@ -1353,6 +1364,12 @@ body {
   background: var(--color-primary-light);
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+
+.action-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
 }
 
 .action-btn .btn-icon { font-size: 13px; line-height: 1; }
