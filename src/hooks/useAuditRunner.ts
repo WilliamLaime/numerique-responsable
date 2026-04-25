@@ -180,6 +180,22 @@ export async function jumpToElement(pageUrl: string, auditId: string): Promise<v
   }
 }
 
+export async function toggleTabOrder(): Promise<boolean> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = tab.id!;
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['taborder.js'] });
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => (globalThis as any).__nrTabOrder(),
+    });
+    return res?.result ?? false;
+  } catch (e) {
+    console.error('toggleTabOrder failed', e);
+    return false;
+  }
+}
+
 export function useAuditRunner() {
   const { nrConfirm } = useModal();
 
@@ -204,13 +220,24 @@ export function useAuditRunner() {
         }
 
         auditStore.getState().setLoadingText(
-          scope === 'site' ? 'Préparation du crawl...' : 'Analyse en cours...',
+          scope === 'site' ? 'Préparation du crawl...' : scope === 'urls' ? 'Validation des URLs...' : 'Analyse en cours...',
         );
 
-        const urls =
-          scope === 'page'
-            ? [currentTab.url]
-            : await discoverUrls(currentTab.url, pageLimit);
+        let urls: string[] = [];
+        if (scope === 'page') {
+          urls = [currentTab.url];
+        } else if (scope === 'urls') {
+          const custom = st.customUrls
+            .map((u) => normalizeUrl(u.trim()))
+            .filter((u) => u && new URL(u).origin === new URL(currentTab.url).origin);
+          if (!custom.length) {
+            auditStore.getState().setScreen('error', 'Aucune URL valide du même domaine trouvée.');
+            return;
+          }
+          urls = custom;
+        } else {
+          urls = await discoverUrls(currentTab.url, pageLimit);
+        }
 
         if (!urls.length) {
           auditStore.getState().setScreen('error', 'Aucune URL trouvée à auditer.');
@@ -296,7 +323,8 @@ export function useAuditRunner() {
         auditStore.getState().setProgressUrl('Terminé');
         auditStore.getState().finalizeAudit();
 
-        if (!auditStore.getState().pagesResults.length) {
+        const { pagesResults, aggregated } = auditStore.getState();
+        if (!pagesResults.length || !aggregated) {
           auditStore
             .getState()
             .setScreen('error', "L'audit n'a retourné aucun résultat exploitable.");

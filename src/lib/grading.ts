@@ -179,6 +179,7 @@ export const STATUS_LABEL: Record<string, string> = {
   C: 'Conforme',
   NC: 'Non conforme',
   NA: 'Non applicable',
+  NT: 'Non testé',
 };
 
 export const STATUS_PRIORITY: Record<StatusCode, number> = {

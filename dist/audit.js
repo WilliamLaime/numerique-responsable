@@ -97,6 +97,15 @@ const describe = (el) => {
   } catch { return { auditId: null, selector: '?', outer: '' }; }
 };
 
+const inNoscript = (el) => {
+  let p = el.parentElement;
+  while (p) {
+    if (p.tagName === 'NOSCRIPT') return true;
+    p = p.parentElement;
+  }
+  return false;
+};
+
 const sampleElements = (els, n = 5) => {
   const decorated = els.map(el => ({ el, desc: describe(el) }));
   decorated.sort((a, b) =>
@@ -227,15 +236,17 @@ const AUTO_C = (id, num, theme, title, advice, heuristic = null, level = 'A') =>
     return { status: 'C', count: 0, measure: 'Aucun marqueur technique de non-conformité détecté' };
   }
 });
-// Alias de compat pour les règles historiquement non-testables : même comportement que AUTO_C.
-const NT = AUTO_C;
+const NT = (id, num, theme, title, advice, manualPrompt = 'Vérification manuelle requise.', level = 'A') => ({
+  id, num, theme, level, title, advice,
+  run: () => ({ status: 'NT', count: 0, measure: 'Non testable automatiquement', manualPrompt })
+});
 
 const RULES_IMAGES = [
   { id: 'img-1.1-alt-missing', num: '1.1', theme: 1, level: 'A',
     title: "Chaque image porteuse d'information a-t-elle une alternative textuelle ?",
     advice: "Ajoutez un attribut alt à chaque <img>. Vide (alt=\"\") si décorative, descriptif sinon.",
     run: () => {
-      const all = [...document.querySelectorAll('img, input[type=image], area')];
+      const all = [...document.querySelectorAll('img, input[type=image], area')].filter(i => !inNoscript(i));
       if (!all.length) return { status: 'NA', count: 0, measure: 'Aucune image' };
       const bad = all.filter(i => !i.hasAttribute('alt'));
       return bad.length
@@ -246,7 +257,7 @@ const RULES_IMAGES = [
     title: "Chaque image décorative est-elle correctement ignorée ?",
     advice: "Les images de décoration doivent avoir alt=\"\" (ou role=\"presentation\"/aria-hidden=\"true\") et pas de title.",
     run: () => {
-      const decor = [...document.querySelectorAll('img[alt=""], img[role=presentation], img[role=none], img[aria-hidden=true]')];
+      const decor = [...document.querySelectorAll('img[alt=""], img[role=presentation], img[role=none], img[aria-hidden=true]')].filter(i => !inNoscript(i));
       if (!decor.length) return { status: 'NA', count: 0, measure: 'Aucune image décorative détectée' };
       const bad = decor.filter(i => i.getAttribute('title')?.trim() || i.getAttribute('aria-label')?.trim());
       return bad.length
@@ -257,7 +268,7 @@ const RULES_IMAGES = [
     "Pour chaque image porteuse d'information, l'alternative textuelle est-elle pertinente ?",
     "Chaque alt doit décrire le contenu de l'image (hors contexte).",
     () => {
-      const imgs = [...document.querySelectorAll('img[alt]')].filter(i => i.getAttribute('alt')?.trim());
+      const imgs = [...document.querySelectorAll('img[alt]')].filter(i => !inNoscript(i) && i.getAttribute('alt')?.trim());
       if (!imgs.length) return { status: 'NA', count: 0, measure: 'Aucune image avec alt non vide' };
       const generic = /^(image|photo|picture|img|icon|icône|logo|banner|bannière)\.?$/i;
       const bad = imgs.filter(i => {
@@ -272,7 +283,7 @@ const RULES_IMAGES = [
     "Chaque image-CAPTCHA a-t-elle une alternative ?",
     "Chaque CAPTCHA image doit proposer une alternative accessible (audio, question textuelle).",
     () => {
-      const captchas = [...document.querySelectorAll('img[src*=captcha i], img[name*=captcha i], img[id*=captcha i], img[alt*=captcha i]')];
+      const captchas = [...document.querySelectorAll('img[src*=captcha i], img[name*=captcha i], img[id*=captcha i], img[alt*=captcha i]')].filter(i => !inNoscript(i));
       if (!captchas.length) return { status: 'NA', count: 0, measure: 'Aucune image-CAPTCHA détectée' };
       const bad = captchas.filter(i => !i.getAttribute('alt')?.trim());
       return bad.length
@@ -345,7 +356,7 @@ const RULES_CADRES = [
     title: "Chaque cadre en ligne a-t-il un titre ?",
     advice: "Ajoutez un attribut title explicite à chaque <iframe>.",
     run: () => {
-      const frames = [...document.querySelectorAll('iframe')];
+      const frames = [...document.querySelectorAll('iframe')].filter(f => !inNoscript(f));
       if (!frames.length) return { status: 'NA', count: 0, measure: 'Aucun iframe' };
       const bad = frames.filter(f => !f.getAttribute('title')?.trim() && !f.getAttribute('aria-label')?.trim() && !f.getAttribute('aria-labelledby')?.trim());
       return bad.length
@@ -356,7 +367,7 @@ const RULES_CADRES = [
     title: "Pour chaque cadre en ligne ayant un titre, ce titre est-il pertinent ?",
     advice: "Le title d'un iframe doit décrire son contenu (ex: « Carte interactive »).",
     run: () => {
-      const frames = [...document.querySelectorAll('iframe[title]')];
+      const frames = [...document.querySelectorAll('iframe[title]')].filter(f => !inNoscript(f));
       if (!frames.length) return { status: 'NA', count: 0 };
       const generic = /^(iframe|frame|content|embed|sans titre|untitled)$/i;
       const bad = frames.filter(f => generic.test(f.getAttribute('title').trim()));
@@ -597,7 +608,7 @@ const RULES_LIENS = [
     title: "Chaque lien est-il explicite ?",
     advice: "Chaque <a href> doit avoir un texte ou un aria-label explicite (hors contexte).",
     run: () => {
-      const links = [...document.querySelectorAll('a[href]')].filter(isVisible);
+      const links = [...document.querySelectorAll('a[href]')].filter(a => !inNoscript(a) && isVisible(a));
       if (!links.length) return { status: 'NA', count: 0 };
       const empty = links.filter(a => !accessibleName(a));
       const generic = links.filter(a => {
@@ -616,9 +627,9 @@ const RULES_LIENS = [
     "L'intitulé d'un lien doit être compréhensible hors contexte.",
     () => {
       const links = [...document.querySelectorAll('a[href]')].filter(a => {
-        if (!isVisible(a)) return false;
+        if (inNoscript(a) || !isVisible(a)) return false;
         const href = a.getAttribute('href') || '';
-        return !href.startsWith('#'); // exclut ancres et liens d'évitement
+        return !href.startsWith('#');
       });
       if (!links.length) return { status: 'NA', count: 0, measure: 'Aucun lien testable' };
       const bad = links.filter(a => {
@@ -855,7 +866,7 @@ const RULES_FORMULAIRES = [
     title: "Chaque champ de formulaire a-t-il une étiquette ?",
     advice: "Associez un <label for=\"id\"> à chaque champ, ou utilisez aria-label/aria-labelledby.",
     run: () => {
-      const fields = [...document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]):not([type=image]), select, textarea')];
+      const fields = [...document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]):not([type=image]), select, textarea')].filter(el => !inNoscript(el));
       if (!fields.length) return { status: 'NA', count: 0 };
       const bad = fields.filter(el => !accessibleName(el));
       return bad.length
@@ -870,7 +881,7 @@ const RULES_FORMULAIRES = [
     advice: "Groupez les radios/checkboxes de même thématique par <fieldset> + <legend>.",
     run: () => {
       const groups = new Map();
-      [...document.querySelectorAll('input[type=radio][name], input[type=checkbox][name]')].forEach(el => {
+      [...document.querySelectorAll('input[type=radio][name], input[type=checkbox][name]')].filter(el => !inNoscript(el)).forEach(el => {
         if (!groups.has(el.name)) groups.set(el.name, []);
         groups.get(el.name).push(el);
       });
@@ -900,7 +911,7 @@ const RULES_FORMULAIRES = [
     title: "Dans chaque formulaire, l'intitulé de chaque bouton est-il pertinent ?",
     advice: "Ajoutez un texte visible, un aria-label ou un aria-labelledby à chaque bouton.",
     run: () => {
-      const btns = [...document.querySelectorAll('button, [role=button], input[type=submit], input[type=button], input[type=reset], input[type=image]')];
+      const btns = [...document.querySelectorAll('button, [role=button], input[type=submit], input[type=button], input[type=reset], input[type=image]')].filter(b => !inNoscript(b));
       if (!btns.length) return { status: 'NA', count: 0 };
       const bad = btns.filter(b => !accessibleName(b));
       return bad.length
@@ -911,8 +922,8 @@ const RULES_FORMULAIRES = [
     title: "Dans chaque formulaire, le contrôle de saisie est-il utilisé de manière pertinente ?",
     advice: "Utilisez aria-invalid, aria-describedby pour signaler/décrire une erreur.",
     run: () => {
-      const invalid = [...document.querySelectorAll('[aria-invalid]')];
-      const required = [...document.querySelectorAll('input[required], select[required], textarea[required], [aria-required]')];
+      const invalid = [...document.querySelectorAll('[aria-invalid]')].filter(el => !inNoscript(el));
+      const required = [...document.querySelectorAll('input[required], select[required], textarea[required], [aria-required]')].filter(el => !inNoscript(el));
       if (!required.length) return { status: 'NA', count: 0 };
       return { status: 'C', count: 0, measure: `${required.length} champ(s) requis — dispositif de contrôle présumé présent (aria-invalid: ${invalid.length})` };
     }},

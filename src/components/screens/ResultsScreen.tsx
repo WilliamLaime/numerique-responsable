@@ -1,15 +1,18 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuditStore, auditStore } from '../../store/auditStore';
 import { useExport } from '../../hooks/useExport';
 import { useStorage } from '../../hooks/useStorage';
 import { useModal } from '../../contexts/ModalContext';
-import { jumpToElement } from '../../hooks/useAuditRunner';
+import { jumpToElement, toggleTabOrder } from '../../hooks/useAuditRunner';
 import { slimPagesResults } from '../../lib/exportUtils';
 import { gradeClass, RGAA_TO_WCAG, WCAG_GUIDELINES_ORDER, WCAG_GUIDELINE_LABELS, WCAG_UNDERSTANDING_SLUG } from '../../lib/grading';
 import { themeKeyOf, sortEntries } from '../../lib/aggregation';
 import { RGAA_THEMES_ORDER, RGESN_THEMES, STATUS_LABEL } from '../../lib/grading';
 import { nrToast } from '../../lib/toast';
 import type { AggregatedEntry, ByPageEntry, AuditMode, Referential, RuleResult, StatusCode } from '../../types/audit';
+
+const TOOL_A11Y_COVERAGE = Math.round(63 / 106 * 100); // 59
+const TOOL_ECO_COVERAGE  = Math.round(18 / 19 * 100);  // 95
 
 interface Props {
   active: boolean;
@@ -34,7 +37,7 @@ function ScoreRing({ score }: { score: number }) {
           strokeDashoffset={offset}
         />
       </svg>
-      <div className="value">{score}</div>
+      <div className="value">{score}<span className="percent">%</span></div>
     </div>
   );
 }
@@ -55,12 +58,16 @@ interface IssueCardProps {
   kind: string;
   pageInfo?: ByPageEntry;
   referential?: Referential;
+  override?: 'C' | 'NC';
+  onSetOverride?: (status: 'C' | 'NC') => void;
+  onClearOverride?: () => void;
 }
 
-function IssueCard({ entry, kind, pageInfo, referential = 'rgaa' }: IssueCardProps) {
+function IssueCard({ entry, kind, pageInfo, referential = 'rgaa', override, onSetOverride, onClearOverride }: IssueCardProps) {
   const [expanded, setExpanded] = useState(false);
   const r = entry.rule;
-  const status = (pageInfo ? pageInfo.status : entry.aggregateStatus) as StatusCode;
+  const rawStatus = (pageInfo ? pageInfo.status : entry.aggregateStatus) as StatusCode;
+  const status = (!pageInfo && override) ? override : rawStatus;
   const meta = ruleMeta(kind, r, referential);
   const measure = pageInfo
     ? pageInfo.measure
@@ -173,8 +180,25 @@ function IssueCard({ entry, kind, pageInfo, referential = 'rgaa' }: IssueCardPro
       </div>
       <div className="issue-body">
         {r.advice && <div className="issue-advice">💡 {r.advice}</div>}
-        {manualPrompt && status === 'NT' && (
-          <div className="issue-manual">❓ {manualPrompt}</div>
+        {manualPrompt && rawStatus === 'NT' && !pageInfo && (
+          <div className="issue-manual">
+            <span>❓ {manualPrompt}</span>
+            {override ? (
+              <div className="nt-validated">
+                <span className={`nt-validated-badge status-${override}`}>
+                  ✔ Validé manuellement — {override === 'C' ? 'Conforme' : 'Non conforme'}
+                </span>
+                <button className="nt-reset-btn" onClick={onClearOverride} title="Annuler la validation">
+                  ↺ Réinitialiser
+                </button>
+              </div>
+            ) : (
+              <div className="nt-actions">
+                <button className="nt-btn nt-c" onClick={() => onSetOverride?.('C')}>✓ Conforme</button>
+                <button className="nt-btn nt-nc" onClick={() => onSetOverride?.('NC')}>✗ Non conforme</button>
+              </div>
+            )}
+          </div>
         )}
         {measure && <div className="issue-measure">📊 {measure}</div>}
         {details?.length ? (
@@ -223,17 +247,31 @@ function SampleBtn({ auditId, outer, pageUrl }: { auditId: string; outer: string
 // ── Issues list (3 view modes) ────────────────────────────────────────────────
 
 function IssuesByRule({ entries, kind, referential }: { entries: AggregatedEntry[]; kind: string; referential: Referential }) {
+  const manualOverrides = useAuditStore((s) => s.manualOverrides);
+  const setManualOverride = useAuditStore((s) => s.setManualOverride);
+  const clearManualOverride = useAuditStore((s) => s.clearManualOverride);
   const sorted = sortEntries([...entries]);
   return (
     <>
       {sorted.map((e) => (
-        <IssueCard key={e.rule.id} entry={e} kind={kind} referential={referential} />
+        <IssueCard
+          key={e.rule.id}
+          entry={e}
+          kind={kind}
+          referential={referential}
+          override={manualOverrides[e.rule.id]}
+          onSetOverride={(s) => setManualOverride(e.rule.id, s)}
+          onClearOverride={() => clearManualOverride(e.rule.id)}
+        />
       ))}
     </>
   );
 }
 
 function IssuesByTheme({ entries, kind, referential }: { entries: AggregatedEntry[]; kind: string; referential: Referential }) {
+  const manualOverrides = useAuditStore((s) => s.manualOverrides);
+  const setManualOverride = useAuditStore((s) => s.setManualOverride);
+  const clearManualOverride = useAuditStore((s) => s.clearManualOverride);
   const order: readonly string[] = (kind === 'a11y' && referential === 'wcag')
     ? WCAG_GUIDELINES_ORDER
     : kind === 'a11y' ? RGAA_THEMES_ORDER : RGESN_THEMES;
@@ -266,12 +304,21 @@ function IssuesByTheme({ entries, kind, referential }: { entries: AggregatedEntr
             <span className="theme-section-dist">
               <span className="theme-stat C" title="Conforme">✓ {theme.C}</span>
               <span className="theme-stat NC" title="Non conforme">✗ {theme.NC}</span>
+              <span className="theme-stat NT" title="Non testé">? {theme.NT}</span>
               <span className="theme-stat NA" title="Non applicable">− {theme.NA}</span>
             </span>
           </div>
           <div className="theme-section-body">
             {filtered.map((e) => (
-              <IssueCard key={e.rule.id} entry={e} kind={kind} referential={referential} />
+              <IssueCard
+                key={e.rule.id}
+                entry={e}
+                kind={kind}
+                referential={referential}
+                override={manualOverrides[e.rule.id]}
+                onSetOverride={(s) => setManualOverride(e.rule.id, s)}
+                onClearOverride={() => clearManualOverride(e.rule.id)}
+              />
             ))}
           </div>
         </div>
@@ -365,10 +412,48 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const setScreen = useAuditStore((s) => s.setScreen);
   const setSelectTab = useAuditStore((s) => s.setSelectTab);
 
+  const manualOverrides = useAuditStore((s) => s.manualOverrides);
+
   const { exportCsv, exportPdf } = useExport();
   const { saveAudit } = useStorage();
   const { nrPrompt } = useModal();
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [tabOrderActive, setTabOrderActive] = useState(false);
+
+  const effectiveStatusCounts = useMemo(() => {
+    const empty = () => ({ C: 0, NC: 0, NA: 0, NT: 0 });
+    if (!aggregated) return { a11y: empty(), eco: empty() };
+    const compute = (rm: Map<string, AggregatedEntry>) => {
+      const c = { C: 0, NC: 0, NA: 0, NT: 0 };
+      for (const e of rm.values()) {
+        const s = ((manualOverrides ?? {})[e.rule.id] ?? e.aggregateStatus) as StatusCode;
+        if (s && s in c) c[s]++;
+      }
+      return c;
+    };
+    return {
+      a11y: compute(aggregated.byRule.a11y),
+      eco: compute(aggregated.byRule.eco),
+    };
+  }, [aggregated, manualOverrides]);
+
+  const effectiveScores = useMemo(() => {
+    if (!aggregated) return { a11y: 100, eco: 100 };
+    const compute = (rm: Map<string, AggregatedEntry>) => {
+      let c = 0, nc = 0;
+      for (const e of rm.values()) {
+        const s = (manualOverrides ?? {})[e.rule.id] ?? e.aggregateStatus;
+        if (s === 'C') c++;
+        else if (s === 'NC') nc++;
+      }
+      const d = c + nc;
+      return d ? Math.round((c / d) * 100) : 100;
+    };
+    return {
+      a11y: compute(aggregated.byRule.a11y),
+      eco: compute(aggregated.byRule.eco),
+    };
+  }, [aggregated, manualOverrides]);
 
   if (!aggregated || !mode) return null;
 
@@ -427,8 +512,15 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   // Filtered entries for current tab
   const kind = activeTab as 'a11y' | 'eco';
   const ruleMap = aggregated.byRule[kind];
+
+  const effectiveStatus = (e: AggregatedEntry): StatusCode => {
+    const overrides = manualOverrides ?? {};
+    return (overrides[e.rule.id] ?? e.aggregateStatus) as StatusCode;
+  };
+
   const entries = [...ruleMap.values()].filter((e) => {
-    if (!e.aggregateStatus || !activeStatuses.has(e.aggregateStatus)) return false;
+    const es = effectiveStatus(e);
+    if (!es || !activeStatuses.has(es)) return false;
     if (view !== 'theme' && activeThemes.size) {
       if (!activeThemes.has(themeKeyOf(kind, e.rule, referential))) return false;
     }
@@ -440,9 +532,14 @@ export default function ResultsScreen({ active, startAudit }: Props) {
   const themeOptions = [...themeMap.entries()].filter(([, v]) => v.total > 0);
   const themeTotal = themeOptions.reduce((a, [, v]) => a + v.total, 0);
 
-  // Scores
-  const statusCounts = aggregated.statusCounts;
-  const scores = aggregated.scores;
+  const statusCounts = effectiveStatusCounts;
+  const scores = effectiveScores;
+
+  const auditCoverage = (k: 'a11y' | 'eco'): number => {
+    const { C, NC, NA, NT } = statusCounts[k];
+    const total = C + NC + NA + NT;
+    return total ? Math.round((C + NC + NA) / total * 100) : 0;
+  };
 
   return (
     <section id="screen-results" className={`screen${active ? ' active' : ''}`}>
@@ -487,6 +584,17 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <span className="btn-icon" aria-hidden="true">📑</span>
             <span className="btn-label">{pdfLoading ? 'En cours…' : 'PDF'}</span>
           </button>
+          <button
+            className={`action-btn${tabOrderActive ? ' active' : ''}`}
+            title="Visualiser l'ordre de tabulation sur la page"
+            onClick={async () => {
+              const active = await toggleTabOrder();
+              setTabOrderActive(active ?? false);
+            }}
+          >
+            <span className="btn-icon" aria-hidden="true">⇥</span>
+            <span className="btn-label">Tab order</span>
+          </button>
         </div>
         <button
           id="rerun-btn"
@@ -511,6 +619,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <div className="breakdown status-breakdown">
               <span className="status-pill C" title="Conforme">✓ {statusCounts.a11y.C}</span>
               <span className="status-pill NC" title="Non conforme">✗ {statusCounts.a11y.NC}</span>
+              <span className="status-pill NT" title="Non testé">? {statusCounts.a11y.NT}</span>
               <span className="status-pill NA" title="Non applicable">− {statusCounts.a11y.NA}</span>
             </div>
           </div>
@@ -522,9 +631,29 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <div className="breakdown status-breakdown">
               <span className="status-pill C" title="Conforme">✓ {statusCounts.eco.C}</span>
               <span className="status-pill NC" title="Non conforme">✗ {statusCounts.eco.NC}</span>
+              <span className="status-pill NT" title="Non testé">? {statusCounts.eco.NT}</span>
               <span className="status-pill NA" title="Non applicable">− {statusCounts.eco.NA}</span>
             </div>
           </div>
+        )}
+      </div>
+
+      {/* Score explanation */}
+      <div className="score-legend">
+        <p className="legend-title">ℹ️ Calcul du score</p>
+        <p className="legend-formula">Score = Conformes ÷ (Conformes + Non conformes) × 100</p>
+        <p className="legend-note">Les critères Non testé (NT) et Non applicable (NA) ne sont pas comptabilisés dans le score.</p>
+        {(mode === 'a11y' || mode === 'both') && (
+          <p className="legend-coverage">
+            Accessibilité — <strong>{auditCoverage('a11y')}%</strong> des critères testés lors de cet audit
+            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_A11Y_COVERAGE}%</strong> du RGAA (106 critères)
+          </p>
+        )}
+        {(mode === 'eco' || mode === 'both') && (
+          <p className="legend-coverage">
+            Écoconception — <strong>{auditCoverage('eco')}%</strong> des critères testés lors de cet audit
+            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_ECO_COVERAGE}%</strong> du RGESN (79 critères)
+          </p>
         )}
       </div>
 
@@ -565,7 +694,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
 
       {/* Status filters */}
       <div id="status-filters" className="status-filters" style={{ display: 'flex' }}>
-        {(['NC', 'C', 'NA'] as StatusCode[]).map((code) => (
+        {(['NC', 'NT', 'C', 'NA'] as StatusCode[]).map((code) => (
           <button
             key={code}
             className={`status-chip ${code}${activeStatuses.has(code) ? ' active' : ''}`}

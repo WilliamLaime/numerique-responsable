@@ -1,8 +1,85 @@
+import { useState, useRef } from 'react';
 import { useAuditStore } from '../../store/auditStore';
 import { useSettings } from '../../hooks/useSettings';
 import { useStorage } from '../../hooks/useStorage';
 import { useModal } from '../../contexts/ModalContext';
 import type { AuditMode, SavedAuditEntry } from '../../types/audit';
+
+function UrlPicker({ urls, onChange }: { urls: string[]; onChange: (urls: string[]) => void }) {
+  const [input, setInput] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const addUrl = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed || urls.includes(trimmed)) return;
+    try { new URL(trimmed); } catch { return; }
+    onChange([...urls, trimmed]);
+    setInput('');
+  };
+
+  const removeUrl = (url: string) => onChange(urls.filter((u) => u !== url));
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      addUrl(input);
+    }
+  };
+
+  return (
+    <div className="url-picker field">
+      <span className="field-label">
+        Pages à auditer
+        {urls.length > 0 && <span className="url-count">{urls.length} URL{urls.length > 1 ? 's' : ''}</span>}
+      </span>
+      <div className="url-input-row">
+        <input
+          ref={inputRef}
+          type="url"
+          className="url-text-input"
+          placeholder="https://example.com/page"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={(e) => {
+            e.preventDefault();
+            const lines = e.clipboardData.getData('text').split(/[\n,]+/);
+            lines.forEach((l) => addUrl(l));
+          }}
+        />
+        <button
+          type="button"
+          className="url-add-btn"
+          onClick={() => addUrl(input)}
+          disabled={!input.trim()}
+          aria-label="Ajouter l'URL"
+        >
+          +
+        </button>
+      </div>
+      {urls.length > 0 && (
+        <ul className="url-list">
+          {urls.map((url) => (
+            <li key={url} className="url-chip">
+              <span className="url-chip-text" title={url}>{url}</span>
+              <button
+                type="button"
+                className="url-chip-remove"
+                onClick={() => removeUrl(url)}
+                aria-label={`Retirer ${url}`}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {urls.length === 0 && (
+        <p className="url-empty-hint">Collez une ou plusieurs URLs, une par ligne ou séparées par des virgules.</p>
+      )}
+    </div>
+  );
+}
 
 interface Props {
   active: boolean;
@@ -14,6 +91,8 @@ export default function SelectScreen({ active, startAudit }: Props) {
   const setSelectTab = useAuditStore((s) => s.setSelectTab);
   const scope = useAuditStore((s) => s.scope);
   const setScope = useAuditStore((s) => s.setScope);
+  const customUrls = useAuditStore((s) => s.customUrls);
+  const setCustomUrls = useAuditStore((s) => s.setCustomUrls);
   const pageLimit = useAuditStore((s) => s.pageLimit);
   const setPageLimit = useAuditStore((s) => s.setPageLimit);
   const referential = useAuditStore((s) => s.referential);
@@ -102,8 +181,23 @@ export default function SelectScreen({ active, startAudit }: Props) {
                 <em>Audit rapide de l'onglet actif</em>
               </span>
             </label>
+            <label className="scope-option">
+              <input
+                type="radio"
+                name="scope"
+                value="urls"
+                checked={scope === 'urls'}
+                onChange={() => setScope('urls')}
+              />
+              <span>
+                <strong>URLs personnalisées</strong>
+                <em>Auditez les URLs que vous choisissez</em>
+              </span>
+            </label>
           </div>
         </div>
+
+        {scope === 'urls' && <UrlPicker urls={customUrls} onChange={setCustomUrls} />}
 
         {scope === 'site' && (
           <div className="field" id="crawl-options">
