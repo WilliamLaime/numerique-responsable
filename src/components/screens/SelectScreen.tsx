@@ -199,25 +199,6 @@ export default function SelectScreen({ active, startAudit }: Props) {
 
         {scope === 'urls' && <UrlPicker urls={customUrls} onChange={setCustomUrls} />}
 
-        {scope === 'site' && (
-          <div className="field" id="crawl-options">
-            <label className="field-label" htmlFor="page-limit">Nombre max de pages</label>
-            <select
-              id="page-limit"
-              value={String(pageLimit)}
-              onChange={(e) =>
-                setPageLimit(e.target.value === 'all' ? 'all' : parseInt(e.target.value, 10))
-              }
-            >
-              <option value="all">Toutes les pages du site</option>
-              <option value="5">5 pages</option>
-              <option value="10">10 pages</option>
-              <option value="25">25 pages</option>
-              <option value="50">50 pages</option>
-            </select>
-          </div>
-        )}
-
         <details className="field advanced-settings">
           <summary>Réglages avancés</summary>
           <div className="advanced-grid">
@@ -247,6 +228,25 @@ export default function SelectScreen({ active, startAudit }: Props) {
               />
               <em className="muted">Attente après chargement pour laisser les scripts se stabiliser.</em>
             </label>
+            {scope === 'site' && (
+              <label className="advanced-item">
+                <span className="field-label">Nombre max de pages</span>
+                <select
+                  id="page-limit"
+                  value={String(pageLimit)}
+                  onChange={(e) =>
+                    setPageLimit(e.target.value === 'all' ? 'all' : parseInt(e.target.value, 10))
+                  }
+                >
+                  <option value="all">Toutes les pages du site</option>
+                  <option value="5">5 pages</option>
+                  <option value="10">10 pages</option>
+                  <option value="25">25 pages</option>
+                  <option value="50">50 pages</option>
+                </select>
+                <em className="muted">Uniquement pour le périmètre "Site complet".</em>
+              </label>
+            )}
           </div>
         </details>
 

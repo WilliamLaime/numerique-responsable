@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect width="128" height="128" rx="24" fill="#2d7a4f"/>
+  <!-- Tige -->
+  <line x1="64" y1="100" x2="64" y2="58" stroke="#a8f0c0" stroke-width="6" stroke-linecap="round"/>
+  <!-- Feuille gauche -->
+  <path d="M64 72 Q44 62 40 42 Q58 44 64 64" fill="#6ee094"/>
+  <!-- Feuille droite -->
+  <path d="M64 60 Q84 50 88 30 Q70 32 64 52" fill="#a8f0c0"/>
+  <!-- Sol -->
+  <ellipse cx="64" cy="100" rx="20" ry="5" fill="#6ee094" opacity="0.6"/>
+</svg>
