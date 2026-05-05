@@ -92,8 +92,19 @@ const describe = (el) => {
     const cls = (el.className && typeof el.className === 'string')
       ? `.${el.className.trim().split(/\s+/).slice(0, 2).join('.')}`
       : '';
-    const outer = (el.outerHTML || '').replace(/\s*data-nr-audit-id="[^"]*"/g, '').slice(0, 200).replace(/\s+/g, ' ');
-    return { auditId: tagElement(el), selector: `${tag}${id}${cls}`, outer };
+    const outer = (el.outerHTML || '').replace(/\s*data-nr-audit-id="[^"]*"/g, '').slice(0, 300).replace(/\s+/g, ' ');
+    let selector = `${tag}${id}${cls}`;
+    if (tag === 'img' && !id) {
+      const alt = el.getAttribute('alt');
+      const src = (el.getAttribute('src') || el.getAttribute('data-src') || '').split('/').pop()?.split('?')[0] || '';
+      if (alt && alt.trim()) selector += `[alt="${alt.trim().slice(0, 50)}"]`;
+      else if (src) selector += `[src="${src}"]`;
+    } else if (!id && ['span','p','a','li','td','th','label','button','em','strong',
+        'h1','h2','h3','h4','h5','h6','figcaption','blockquote','cite','dt','dd','small','code'].includes(tag)) {
+      const text = el.textContent?.trim().replace(/\s+/g, ' ').slice(0, 40);
+      if (text) selector += `[text="${text}"]`;
+    }
+    return { auditId: tagElement(el), selector, outer };
   } catch { return { auditId: null, selector: '?', outer: '' }; }
 };
 
@@ -329,13 +340,16 @@ const RULES_IMAGES = [
     "Chaque image-texte porteuse d'information doit si possible être remplacée par du texte stylé.",
     "Aucune image ne doit véhiculer du texte qui pourrait être affiché en HTML/CSS.",
     () => {
-      // Heuristique : image dont l'alt fait >30 caractères et contient des mots ⇒ probable image-texte.
+      // Heuristique : image visible dont l'alt fait >30 caractères avec au moins 2 mots ⇒ probable image-texte.
+      // Exclusions : noscript, images cachées, images décoratives dans des liens/boutons déjà textuels.
       const suspects = [...document.querySelectorAll('img[alt]')].filter(i => {
+        if (inNoscript(i) || !isVisible(i)) return false;
         const a = i.getAttribute('alt').trim();
-        return a.length > 30 && /\w{4,}\s+\w{4,}/.test(a);
+        // L'alt doit ressembler à du texte lisible (≥2 mots de 4+ chars), pas juste un nom de fichier
+        return a.length > 79 && /\w{4,}\s+\w{4,}/.test(a) && !/\.(jpg|jpeg|png|gif|webp|svg|avif)/i.test(a);
       });
       return suspects.length
-        ? { status: 'NC', count: suspects.length, measure: `${suspects.length} image(s) semble(nt) contenir du texte (alt long)`, samples: sampleElements(suspects) }
+        ? { status: 'NC', count: suspects.length, measure: `${suspects.length} image(s) avec un alt > 79 caractères — probable image-texte`, samples: sampleElements(suspects) }
         : null;
     }),
   { id: 'img-1.9-figure-legend', num: '1.9', theme: 1, level: 'A',
@@ -390,7 +404,7 @@ const RULES_COULEURS = [
         .slice(0, 400);
       if (!els.length) return { status: 'NA', count: 0 };
       let checked = 0, nt = 0;
-      const bad = [];
+      const badWithInfo = [];
       for (const el of els) {
         const s = getComputedStyle(el);
         const fg = parseColor(s.color); if (!fg) continue;
@@ -400,13 +414,21 @@ const RULES_COULEURS = [
         const ratio = contrastRatio(fg, bg);
         const fs = parseFloat(s.fontSize); const fw = parseInt(s.fontWeight) || 400;
         const large = fs >= 24 || (fs >= 18.66 && fw >= 700);
-        if (ratio < (large ? 3 : 4.5)) bad.push(el);
+        if (ratio < (large ? 3 : 4.5)) badWithInfo.push({ el, ratio, fg });
       }
-      const measure = `${bad.length} texte(s) en échec sur ${checked} testé(s)` + (nt ? ` · ${nt} avec image de fond (à tester manuellement)` : '');
+      const measure = `${badWithInfo.length} texte(s) en échec sur ${checked} testé(s)` + (nt ? ` · ${nt} avec image de fond (à tester manuellement)` : '');
       if (!checked && nt) return { status: 'C', count: 0, measure };
-      return bad.length
-        ? { status: 'NC', count: bad.length, measure, samples: sampleElements(bad) }
-        : { status: 'C', count: 0, measure };
+      if (!badWithInfo.length) return { status: 'C', count: 0, measure };
+      // Samples enrichis : selector inclut ratio et couleur pour rester lisible même après slimIssues
+      const badEls = badWithInfo.map(b => b.el);
+      const decorated = badEls.map((el, i) => ({ el, desc: describe(el), ratio: badWithInfo[i].ratio, fg: badWithInfo[i].fg }));
+      decorated.sort((a, b) => a.desc.selector.localeCompare(b.desc.selector));
+      const samples = decorated.slice(0, 5).map(({ desc, ratio, fg }) => {
+        const hex = '#' + fg.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+        desc.selector += ` [ratio=${ratio.toFixed(2)}:1, fg=${hex}]`;
+        return desc;
+      });
+      return { status: 'NC', count: badWithInfo.length, measure, samples };
     }},
   NT('col-3.3-contrast-ui', '3.3', 3,
     "Dans chaque page web, les couleurs utilisées dans les composants d'interface ou les éléments graphiques porteurs d'informations sont-elles suffisamment contrastées (hors cas particuliers) ?",
@@ -416,74 +438,30 @@ const RULES_COULEURS = [
 
 // 13 critères Multimédia — la plupart manuels
 const RULES_MULTIMEDIA = [
-  AUTO_C('mul-4.1-transcript', '4.1', 4,
+  NT('mul-4.1-transcript', '4.1', 4,
     "Chaque média temporel pré-enregistré a-t-il une transcription ou audiodescription ?",
-    "Audio/vidéo doivent disposer d'une transcription accessible (texte adjacent, lien, aria-describedby).",
-    () => {
-      const media = [...document.querySelectorAll('audio, video')];
-      if (!media.length) return { status: 'NA', count: 0, measure: 'Aucun média temporel' };
-      const bad = media.filter(m => {
-        if (m.getAttribute('aria-describedby')) return false;
-        const root = m.closest('figure, section, article, div') || m.parentElement;
-        if (!root) return true;
-        return !/transcription|transcript|sous-titre|captions/i.test(root.textContent || '');
-      });
-      return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} média(s) sans transcription identifiable`, samples: sampleElements(bad) }
-        : null;
-    }),
-  AUTO_C('mul-4.2-transcript-relevant', '4.2', 4,
-    "Transcription ou audiodescription pertinente ?",
-    "La transcription doit être fidèle au contenu du média.",
-    () => {
-      const links = [...document.querySelectorAll('a')].filter(a => /transcription|transcript/i.test(a.textContent));
-      if (!links.length) return { status: 'NA', count: 0, measure: 'Aucune transcription détectée' };
-      const bad = links.filter(a => (a.textContent || '').trim().length < 8);
-      return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} lien(s) de transcription peu explicite(s)`, samples: sampleElements(bad) }
-        : null;
-    }),
-  AUTO_C('mul-4.3-subtitles', '4.3', 4,
+    "Vérifiez qu'un texte de transcription ou une audiodescription est accessible à proximité de chaque audio/vidéo.",
+    "Présence d'une transcription ou audiodescription pour chaque média temporel"),
+  NT('mul-4.2-transcript-relevant', '4.2', 4,
+    "La transcription ou l'audiodescription est-elle pertinente ?",
+    "Vérifiez que la transcription couvre fidèlement l'ensemble du contenu audio/vidéo.",
+    "La transcription/audiodescription est complète et fidèle au média"),
+  NT('mul-4.3-subtitles', '4.3', 4,
     "Chaque média temporel synchronisé a-t-il des sous-titres ?",
-    "Chaque <video> doit inclure <track kind=\"captions|subtitles\">.",
-    () => {
-      const videos = [...document.querySelectorAll('video')];
-      if (!videos.length) return { status: 'NA', count: 0, measure: 'Aucune vidéo' };
-      const bad = videos.filter(v => ![...v.querySelectorAll('track')].some(t => /captions|subtitles/i.test(t.getAttribute('kind') || '')));
-      return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} vidéo(s) sans <track> captions/subtitles`, samples: sampleElements(bad) }
-        : null;
-    }),
-  AUTO_C('mul-4.4-subtitles-relevant', '4.4', 4,
-    "Sous-titres pertinents ?",
-    "Les sous-titres doivent être fidèles au dialogue.",
-    () => {
-      const tracks = [...document.querySelectorAll('video track[kind=captions], video track[kind=subtitles]')];
-      if (!tracks.length) return { status: 'NA', count: 0, measure: 'Aucun <track> captions/subtitles' };
-      const bad = tracks.filter(t => !t.getAttribute('src') || !t.getAttribute('srclang'));
-      return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} <track> sans src ou srclang`, samples: sampleElements(bad) }
-        : null;
-    }),
-  AUTO_C('mul-4.5-audiodescription', '4.5', 4,
+    "Vérifiez qu'une piste de sous-titres est disponible (via <track>, YouTube CC, ou player tiers).",
+    "Présence de sous-titres synchronisés pour chaque vidéo"),
+  NT('mul-4.4-subtitles-relevant', '4.4', 4,
+    "Les sous-titres sont-ils pertinents ?",
+    "Vérifiez que les sous-titres retranscrivent fidèlement les dialogues et sons importants.",
+    "Les sous-titres sont complets et synchronisés"),
+  NT('mul-4.5-audiodescription', '4.5', 4,
     "Chaque média temporel a-t-il une audiodescription ?",
-    "Chaque <video> doit inclure <track kind=\"descriptions\">.",
-    () => {
-      const videos = [...document.querySelectorAll('video')];
-      if (!videos.length) return { status: 'NA', count: 0, measure: 'Aucune vidéo' };
-      const bad = videos.filter(v => ![...v.querySelectorAll('track')].some(t => /descriptions/i.test(t.getAttribute('kind') || '')));
-      return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} vidéo(s) sans piste de description audio`, samples: sampleElements(bad) }
-        : null;
-    }),
-  AUTO_C('mul-4.6-audiodescription-relevant', '4.6', 4,
-    "Audiodescription pertinente ?",
-    "L'audiodescription doit couvrir les informations visuelles importantes.",
-    () => {
-      const tracks = [...document.querySelectorAll('video track[kind=descriptions]')];
-      if (!tracks.length) return { status: 'NA', count: 0, measure: 'Aucune piste de description' };
-      return null;
-    }),
+    "Vérifiez qu'une audiodescription est disponible pour les vidéos contenant des informations visuelles essentielles.",
+    "Présence d'une audiodescription pour chaque vidéo porteuse d'information visuelle"),
+  NT('mul-4.6-audiodescription-relevant', '4.6', 4,
+    "L'audiodescription est-elle pertinente ?",
+    "Vérifiez que l'audiodescription couvre toutes les informations visuelles importantes.",
+    "L'audiodescription est complète et fidèle"),
   AUTO_C('mul-4.7-alt-relevant', '4.7', 4,
     "Chaque média temporel est-il clairement identifiable ?",
     "Chaque <audio>/<video> doit avoir un nom accessible (aria-label, title, ou titre adjacent).",
@@ -943,12 +921,21 @@ const RULES_FORMULAIRES = [
 const RULES_NAVIGATION = [
   AUTO_C('nav-12.1-plan', '12.1', 12,
     "La page dispose-t-elle d'au moins deux systèmes de navigation ?",
-    "Une page doit combiner au moins 2 moyens parmi : menu de navigation, moteur de recherche, plan du site.",
+    "Une page doit combiner au moins 2 moyens parmi : menu de navigation, moteur de recherche, plan du site, footer avec liens multiples.",
     () => {
       const hasNav = !!document.querySelector('nav, [role=navigation]');
       const hasSearch = !!document.querySelector('input[type=search], [role=search], form[role=search]');
       const hasPlan = [...document.querySelectorAll('a[href]')].some(a => /plan du site|sitemap/i.test(accessibleName(a) || ''));
-      const systems = [hasNav && 'nav', hasSearch && 'search', hasPlan && 'plan du site'].filter(Boolean);
+      // Un footer avec ≥5 liens internes est équivalent à un plan du site / second système
+      const footer = document.querySelector('footer, [role=contentinfo]');
+      const footerInternalLinks = footer
+        ? [...footer.querySelectorAll('a[href]')].filter(a => {
+            const href = a.getAttribute('href') || '';
+            return href.startsWith('/') || href.startsWith(location.origin) || (!href.startsWith('http') && !href.startsWith('mailto') && !href.startsWith('#'));
+          })
+        : [];
+      const hasFooterNav = footerInternalLinks.length >= 5;
+      const systems = [hasNav && 'nav', hasSearch && 'moteur de recherche', hasPlan && 'plan du site', hasFooterNav && `footer (${footerInternalLinks.length} liens)`].filter(Boolean);
       if (systems.length < 2) {
         return { status: 'NC', count: 1, measure: `Seulement ${systems.length} système(s) de navigation : ${systems.join(', ') || 'aucun'}` };
       }
@@ -1132,47 +1119,78 @@ const asRuleResult = ({ severity, count = 0, measure, elements = [], details }) 
 };
 
 const RULES_ECO = [
-  // ---- Stratégie
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 1 — Stratégie
+  // ════════════════════════════════════════════════════════════
+  NT('eco-strat-1.1', '1.1', 'Stratégie',
+    "Utilité du service évaluée",
+    "Évaluez et documentez si le service numérique est réellement utile face à ses impacts environnementaux."),
+  NT('eco-strat-1.2', '1.2', 'Stratégie',
+    "Démarche d'écoconception formalisée",
+    "Mettez en place une politique d'écoconception documentée et partagée avec les équipes projet."),
+  NT('eco-strat-1.3', '1.3', 'Stratégie',
+    "Référent écoconception désigné",
+    "Désignez au moins un référent écoconception numérique dans l'équipe."),
+  NT('eco-strat-1.4', '1.4', 'Stratégie',
+    "Critères environnementaux dans la sélection des prestataires",
+    "Incluez des critères environnementaux (écoconception, hébergement vert, etc.) dans vos appels d'offres."),
+  NT('eco-strat-1.5', '1.5', 'Stratégie',
+    "Terminaux cibles identifiés",
+    "Identifiez les terminaux (mobile, tablette, desktop) utilisés par vos utilisateurs pour adapter la conception."),
   { id: 'eco-strat-local-storage', num: '1.6', theme: 'Stratégie',
-    title: "Usage excessif du localStorage",
-    advice: "Stocker beaucoup de données côté client peut trahir une logique mal placée. Préférez un cache serveur ou IndexedDB pour les volumes importants.",
+    title: "Collecte de données responsable (cookies et stockage client)",
+    advice: "Limitez le nombre de cookies et la taille du localStorage. Stockez uniquement les données strictement nécessaires côté client.",
     run: () => {
-      let total = 0; const large = [];
+      let lsTotal = 0;
+      try { for (const k of Object.keys(localStorage)) lsTotal += (localStorage.getItem(k) || '').length * 2; } catch {}
+      const cookies = document.cookie ? document.cookie.split(';').filter(c => c.trim()) : [];
+      const details = [
+        { label: 'localStorage', value: `${(lsTotal/1024).toFixed(0)} Ko (${Object.keys(localStorage).length} clés)` },
+        { label: 'Cookies', value: `${cookies.length} cookie(s)` },
+      ];
+      const severity = lsTotal > 512000 || cookies.length > 15 ? 'critique'
+        : lsTotal > 102400 || cookies.length > 8 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${cookies.length} cookie(s) · ${(lsTotal/1024).toFixed(0)} Ko localStorage`, details });
+    }},
+  NT('eco-strat-1.7', '1.7', 'Stratégie',
+    "Système de mesure des impacts environnementaux",
+    "Mettez en place un outil de mesure de l'empreinte carbone du service (GreenIT Analysis, Ecoindex, etc.)."),
+  NT('eco-strat-1.8', '1.8', 'Stratégie',
+    "Objectifs environnementaux communiqués aux équipes",
+    "Partagez les objectifs d'écoconception et formez les équipes (dev, design, PO) à ces enjeux."),
+  NT('eco-strat-1.9', '1.9', 'Stratégie',
+    "Démarche révisée régulièrement",
+    "Planifiez des revues périodiques de la démarche d'écoconception pour l'améliorer."),
+  NT('eco-strat-1.10', '1.10', 'Stratégie',
+    "Déclaration d'écoconception publiée",
+    "Publiez une déclaration d'écoconception accessible depuis le service (ex : lien en pied de page)."),
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 2 — Spécifications
+  // ════════════════════════════════════════════════════════════
+  NT('eco-spec-2.1', '2.1', 'Spécifications',
+    "Fonctionnalités du service définies et documentées",
+    "Listez et documentez les fonctionnalités du service pour identifier les potentielles redondances ou superfluités."),
+  NT('eco-spec-2.2', '2.2', 'Spécifications',
+    "Fonctionnalités peu utilisées identifiées",
+    "Analysez les analytics pour identifier et supprimer ou réduire les fonctionnalités peu ou pas utilisées."),
+  NT('eco-spec-2.3', '2.3', 'Spécifications',
+    "Nombre de fonctionnalités limité au nécessaire",
+    "Appliquez le principe de sobriété fonctionnelle : ne développez que ce qui répond à un besoin réel avéré."),
+  { id: 'eco-spec-service-worker', num: '2.4', theme: 'Spécifications',
+    title: "Fonctionnement en connexion dégradée",
+    advice: "Enregistrez un Service Worker pour permettre un mode hors-ligne ou bas débit. Proposez un contenu minimal en cas de réseau lent.",
+    run: () => {
+      if (!('serviceWorker' in navigator)) return { status: 'NT', count: 0, measure: 'API Service Worker non disponible', manualPrompt: 'Vérifiez si une alternative bas débit est proposée.' };
       try {
-        for (const k of Object.keys(localStorage)) {
-          const v = localStorage.getItem(k) || '';
-          const size = v.length * 2;
-          total += size;
-          if (size > 50000) large.push(k);
-        }
-      } catch { return { status: 'C', count: 0, measure: 'localStorage inaccessible' }; }
-      const severity = total > 512000 ? 'critique' : total > 102400 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko dans localStorage (${Object.keys(localStorage).length} clés)` });
+        const regs = navigator.serviceWorker.controller;
+        const severity = regs ? 'ok' : 'majeur';
+        return asRuleResult({ severity, measure: regs ? 'Service Worker actif' : 'Aucun Service Worker enregistré' });
+      } catch { return { status: 'NT', count: 0, measure: 'Inaccessible', manualPrompt: 'Vérifiez manuellement.' }; }
     }},
-  { id: 'eco-strat-third-party', num: '1.6', theme: 'Stratégie',
-    title: 'Dépendances tierces',
-    advice: "Auto-hébergez les ressources critiques (polices, analytics). Auditez régulièrement vos dépendances externes.",
-    run: () => {
-      const host = location.hostname;
-      const tp = resourceEntries().filter(e => { try { return new URL(e.name).hostname !== host; } catch { return false; } });
-      const hosts = new Set(tp.map(e => { try { return new URL(e.name).hostname; } catch { return ''; } }));
-      const domainCounts = {};
-      tp.forEach(e => {
-        try {
-          const h = new URL(e.name).hostname;
-          domainCounts[h] = (domainCounts[h] || 0) + 1;
-        } catch {}
-      });
-      const details = Object.entries(domainCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 15)
-        .map(([domain, count]) => ({ label: domain, value: `${count} req.` }));
-      const severity = hosts.size > 10 ? 'critique' : hosts.size > 5 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${hosts.size} domaine(s) tiers, ${tp.length} requête(s)`, count: hosts.size, details });
-    }},
-  // ---- Spécifications
-  { id: 'eco-spec-viewport', num: '2.2', theme: 'Spécifications',
-    title: 'Meta viewport',
+  { id: 'eco-spec-viewport', num: '2.5', theme: 'Spécifications',
+    title: "Adaptation aux différents types de terminaux",
     advice: "Configurez <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> sans bloquer le zoom.",
     run: () => {
       const v = document.querySelector('meta[name="viewport"]');
@@ -1184,163 +1202,468 @@ const RULES_ECO = [
         return asRuleResult({ severity: 'majeur', measure: 'width=device-width manquant', elements: [v] });
       return asRuleResult({ severity: 'ok', measure: 'Viewport correct' });
     }},
-  // ---- Architecture
-  { id: 'eco-arch-http-requests', num: '6.1', theme: 'Architecture',
-    title: 'Nombre de requêtes HTTP',
-    advice: "Mutualisez les fichiers JS/CSS, utilisez des sprites SVG, activez HTTP/2, groupez les appels API.",
+  NT('eco-spec-2.6', '2.6', 'Spécifications',
+    "Tests de compatibilité avec terminaux anciens",
+    "Testez le service sur des terminaux d'entrée de gamme et des modèles de 3-5 ans pour garantir la compatibilité."),
+  NT('eco-spec-2.7', '2.7', 'Spécifications',
+    "Politique de support des anciens navigateurs",
+    "Définissez et documentez les versions minimales de navigateurs supportées pour étendre la durée de vie des terminaux."),
+  NT('eco-spec-2.8', '2.8', 'Spécifications',
+    "Alternative textuelle ou basse résolution proposée",
+    "Proposez une version allégée ou textuelle du service pour les connexions lentes ou terminaux limités."),
+  NT('eco-spec-2.9', '2.9', 'Spécifications',
+    "Tests en conditions de connectivité dégradée",
+    "Testez le service avec des profils réseau limités (3G, 2G) via les DevTools ou des outils de simulation."),
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 3 — Architecture
+  // ════════════════════════════════════════════════════════════
+  NT('eco-arch-3.1', '3.1', 'Architecture',
+    "Formats de données adaptés aux échanges",
+    "Utilisez des formats légers (JSON plutôt que XML, protobuf pour les APIs haute fréquence) et évitez la sur-livraison de données."),
+  { id: 'eco-arch-third-party', num: '3.2', theme: 'Architecture',
+    title: "Nombre de domaines tiers sollicités",
+    advice: "Réduisez les dépendances externes. Auto-hébergez les ressources critiques (polices, analytics). Chaque domaine tiers ajoute une résolution DNS.",
     run: () => {
-      const count = resourceEntries().length + 1;
-      const byType = {};
-      resourceEntries().forEach(e => {
-        const t = e.initiatorType || 'other';
-        byType[t] = (byType[t] || 0) + 1;
+      const host = location.hostname;
+      const tp = resourceEntries().filter(e => { try { return new URL(e.name).hostname !== host; } catch { return false; } });
+      const hosts = new Set(tp.map(e => { try { return new URL(e.name).hostname; } catch { return ''; } }));
+      const domainCounts = {};
+      tp.forEach(e => { try { const h = new URL(e.name).hostname; domainCounts[h] = (domainCounts[h] || 0) + 1; } catch {} });
+      const details = Object.entries(domainCounts).sort((a, b) => b[1] - a[1]).slice(0, 15)
+        .map(([domain, count]) => ({ label: domain, value: `${count} req.` }));
+      const severity = hosts.size > 10 ? 'critique' : hosts.size > 5 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${hosts.size} domaine(s) tiers, ${tp.length} requête(s)`, count: hosts.size, details });
+    }},
+  { id: 'eco-arch-http2', num: '3.3', theme: 'Architecture',
+    title: "Protocoles efficaces (HTTP/2 ou HTTP/3)",
+    advice: "Activez HTTP/2 ou HTTP/3 sur votre serveur. Ces protocoles multiplex les requêtes et réduisent la latence.",
+    run: () => {
+      const entries = resourceEntries().filter(e => e.nextHopProtocol);
+      if (!entries.length) return { status: 'NT', count: 0, measure: 'Protocole non détectable (cross-origin)', manualPrompt: 'Vérifiez la configuration HTTP/2 de votre serveur.' };
+      const old = entries.filter(e => e.nextHopProtocol === 'http/1.1' || e.nextHopProtocol === 'http/1.0');
+      const details = [...new Set(entries.map(e => e.nextHopProtocol))].map(p => ({
+        label: p, value: `${entries.filter(e => e.nextHopProtocol === p).length} ressource(s)`
+      }));
+      const severity = old.length > entries.length * 0.5 ? 'majeur' : old.length > 0 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${old.length} ressource(s) sur HTTP/1.x sur ${entries.length}`, details });
+    }},
+  { id: 'eco-arch-same-domain', num: '3.4', theme: 'Architecture',
+    title: "Ressources statiques hébergées en propre",
+    advice: "Hébergez vos fichiers JS, CSS et polices sur votre propre domaine ou un CDN maîtrisé. Réduisez les résolutions DNS tierces.",
+    run: () => {
+      const host = location.hostname;
+      const statics = resourceEntries().filter(e => {
+        if (!/\.(js|mjs|css|woff2?|ttf|otf)(\?|$)/i.test(e.name)) return false;
+        try { return new URL(e.name).hostname !== host; } catch { return false; }
       });
-      const details = Object.entries(byType)
-        .sort((a, b) => b[1] - a[1])
-        .map(([type, cnt]) => ({ label: type, value: `${cnt}` }));
-      const severity = count > 80 ? 'critique' : count > 40 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${count} requêtes`, details });
+      const externalDomains = new Set(statics.map(e => { try { return new URL(e.name).hostname; } catch { return ''; } }));
+      const details = statics.slice(0, 10).map(e => ({
+        label: new URL(e.name).pathname.split('/').pop() || e.name,
+        value: new URL(e.name).hostname
+      }));
+      const severity = statics.length > 5 ? 'majeur' : statics.length > 0 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${statics.length} ressource(s) statique(s) hébergée(s) sur ${externalDomains.size} domaine(s) tiers`, details });
     }},
-  // ---- UX
-  { id: 'eco-ux-video-autoplay', num: '4.7', theme: 'Expérience et interface utilisateur',
-    title: 'Vidéos en lecture automatique',
-    advice: "Désactivez l'autoplay ou conditionnez-le à une interaction utilisateur.",
-    run: () => {
-      const autos = [...document.querySelectorAll('video')].filter(v => v.autoplay || v.hasAttribute('autoplay'));
-      const severity = autos.some(v => !v.muted) ? 'critique' : autos.length ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${autos.length} vidéo(s) en autoplay`, elements: autos });
-    }},
-  // ---- Contenus
-  { id: 'eco-cont-page-weight', num: '5.1', theme: 'Contenus',
-    title: 'Poids total de la page',
-    advice: "Compressez les images (WebP/AVIF), minifiez JS/CSS, supprimez les ressources inutilisées.",
+  { id: 'eco-arch-cache', num: '3.6', theme: 'Architecture',
+    title: "Stratégie de cache des ressources",
+    advice: "Configurez Cache-Control avec des durées longues (1 an) sur vos assets versionnés (JS/CSS/images).",
     run: () => {
       const entries = resourceEntries();
-      const total = entries.reduce((a, e) => a + (e.transferSize || 0), 0) + (navEntry()?.transferSize || 0);
-      const all = [...entries, navEntry()].filter(e => e && e.transferSize > 0);
-      const details = all
-        .sort((a, b) => b.transferSize - a.transferSize)
-        .slice(0, 10)
-        .map(e => ({
-          label: new URL(e.name, location.href).pathname.split('/').pop() || e.name,
-          value: `${Math.round(e.transferSize / 1024)} Ko`
-        }));
-      const severity = total > 2097152 ? 'critique' : total > 1048576 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko transférés (${entries.length+1} requêtes)`, details });
+      if (!entries.length) return asRuleResult({ severity: 'ok', measure: 'Aucune ressource analysable' });
+      const notCached = entries.filter(e => e.transferSize > 0 && e.encodedBodySize > 0 && e.transferSize >= e.encodedBodySize);
+      const ratio = notCached.length / entries.length;
+      const severity = ratio > 0.8 ? 'critique' : ratio > 0.5 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${notCached.length}/${entries.length} ressource(s) servie(s) sans cache apparent` });
     }},
+  NT('eco-arch-3.7', '3.7', 'Architecture',
+    "Adoption d'IPv6",
+    "Configurez votre infrastructure pour supporter IPv6, plus efficace pour l'adressage réseau à grande échelle."),
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 4 — Expérience et interface utilisateur
+  // ════════════════════════════════════════════════════════════
+  NT('eco-ux-4.1', '4.1', 'Expérience et interface utilisateur',
+    "Parcours utilisateurs adaptés aux besoins",
+    "Concevez les parcours en vous basant sur les vrais besoins utilisateurs pour éviter les étapes superflues."),
+  NT('eco-ux-4.2', '4.2', 'Expérience et interface utilisateur',
+    "Parcours utilisateurs optimisés",
+    "Réduisez le nombre de clics pour atteindre les fonctionnalités principales. Analysez les abandons de parcours."),
+  { id: 'eco-ux-video-autoplay', num: '4.3', theme: 'Expérience et interface utilisateur',
+    title: "Lecture automatique de sons et vidéos désactivée",
+    advice: "Désactivez l'autoplay ou conditionnez-le à une interaction utilisateur. L'autoplay consomme de la bande passante inutilement.",
+    run: () => {
+      const autos = [...document.querySelectorAll('video,audio')].filter(v => v.autoplay || v.hasAttribute('autoplay'));
+      const severity = autos.some(v => !v.muted) ? 'critique' : autos.length ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${autos.length} média(s) en autoplay`, elements: autos });
+    }},
+  { id: 'eco-ux-infinite-scroll', num: '4.4', theme: 'Expérience et interface utilisateur',
+    title: "Absence de défilement infini",
+    advice: "Remplacez le défilement infini par une pagination classique ou un bouton \"Charger plus\". Le scroll infini charge des contenus non demandés.",
+    run: () => {
+      const hasPagination = !!document.querySelector('[class*="paginat"],[aria-label*="pagination" i],[role="navigation"] a[href*="page"]');
+      const bodyHeight = document.body.scrollHeight;
+      const viewportH = NR_REFERENCE_VIEWPORT.height;
+      const veryLong = bodyHeight > viewportH * 8;
+      if (hasPagination) return asRuleResult({ severity: 'ok', measure: 'Pagination détectée' });
+      if (veryLong) {
+        const severity = bodyHeight > viewportH * 20 ? 'critique' : 'majeur';
+        return asRuleResult({ severity, measure: `Page très longue (${Math.round(bodyHeight/viewportH)}x la hauteur viewport) sans pagination visible — défilement infini probable` });
+      }
+      return asRuleResult({ severity: 'ok', measure: 'Pas de défilement infini détecté' });
+    }},
+  NT('eco-ux-4.5', '4.5', 'Expérience et interface utilisateur',
+    "Alternatives à la carte et à la géolocalisation",
+    "Proposez une alternative textuelle (adresse, zone, formulaire) aux composants de carte ou de géolocalisation."),
+  NT('eco-ux-4.6', '4.6', 'Expérience et interface utilisateur',
+    "Contenus affichés limités au nécessaire",
+    "Affichez uniquement les contenus pertinents à la page. Évitez le contenu décoratif lourd (carousels auto, vidéos de fond)."),
+  NT('eco-ux-4.7', '4.7', 'Expérience et interface utilisateur',
+    "Système de design utilisé",
+    "Utilisez un système de design (composants réutilisables, tokens) pour limiter les duplications de code et d'assets."),
+  NT('eco-ux-4.8', '4.8', 'Expérience et interface utilisateur',
+    "Fonctionnalités orientées sobriété",
+    "Questionnez la pertinence de chaque fonctionnalité. Supprimez celles qui ne répondent pas à un besoin avéré."),
+  { id: 'eco-ux-animations', num: '4.9', theme: 'Expérience et interface utilisateur',
+    title: "Animations et effets CSS non essentiels",
+    advice: "Limitez les animations. Respectez prefers-reduced-motion. Les transitions lourdes sollicitent le GPU.",
+    run: () => {
+      const sheets = [...document.styleSheets];
+      let hasKeyframes = false, hasReducedMotion = false;
+      for (const sheet of sheets) {
+        try {
+          const rules = [...sheet.cssRules || []];
+          for (const r of rules) {
+            if (r.type === CSSRule.KEYFRAMES_RULE) hasKeyframes = true;
+            if (r.type === CSSRule.MEDIA_RULE && r.conditionText?.includes('prefers-reduced-motion')) hasReducedMotion = true;
+          }
+        } catch {}
+      }
+      if (!hasKeyframes) return asRuleResult({ severity: 'ok', measure: 'Aucune animation @keyframes détectée' });
+      if (hasReducedMotion) return asRuleResult({ severity: 'ok', measure: 'Animations présentes mais prefers-reduced-motion respecté' });
+      return asRuleResult({ severity: 'mineur', measure: 'Animations @keyframes sans media prefers-reduced-motion' });
+    }},
+  NT('eco-ux-4.10', '4.10', 'Expérience et interface utilisateur',
+    "Visuels dans les e-mails optimisés",
+    "Optimisez les images des e-mails transactionnels (dimensions adaptées, format léger, alternatives textuelles)."),
+  { id: 'eco-ux-prefers-motion', num: '4.11', theme: 'Expérience et interface utilisateur',
+    title: "Adaptation aux préférences système (mode réduit, thème)",
+    advice: "Implémentez prefers-reduced-motion et prefers-color-scheme pour adapter l'interface aux préférences OS.",
+    run: () => {
+      const sheets = [...document.styleSheets];
+      let hasReducedMotion = false, hasDarkMode = false;
+      for (const sheet of sheets) {
+        try {
+          const rules = [...sheet.cssRules || []];
+          for (const r of rules) {
+            if (r.type === CSSRule.MEDIA_RULE) {
+              if (r.conditionText?.includes('prefers-reduced-motion')) hasReducedMotion = true;
+              if (r.conditionText?.includes('prefers-color-scheme')) hasDarkMode = true;
+            }
+          }
+        } catch {}
+      }
+      const count = (hasReducedMotion ? 1 : 0) + (hasDarkMode ? 1 : 0);
+      if (count === 2) return asRuleResult({ severity: 'ok', measure: 'prefers-reduced-motion et prefers-color-scheme présents' });
+      if (count === 1) return asRuleResult({ severity: 'mineur', measure: `Seulement ${hasReducedMotion ? 'prefers-reduced-motion' : 'prefers-color-scheme'} implémenté` });
+      return asRuleResult({ severity: 'majeur', measure: 'Aucune media query de préférence système (prefers-reduced-motion, prefers-color-scheme)' });
+    }},
+  { id: 'eco-ux-notifications', num: '4.12', theme: 'Expérience et interface utilisateur',
+    title: "Popups et notifications non sollicitées",
+    advice: "Ne demandez les permissions de notification qu'après une interaction utilisateur. Évitez les modales automatiques au chargement.",
+    run: () => {
+      const dialogs = [...document.querySelectorAll('dialog[open],[role="dialog"],[role="alertdialog"]')].filter(d => {
+        const s = getComputedStyle(d);
+        return s.display !== 'none' && s.visibility !== 'hidden';
+      });
+      const severity = dialogs.length > 1 ? 'majeur' : dialogs.length > 0 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${dialogs.length} popup/dialog visible(s) au chargement`, elements: dialogs });
+    }},
+  { id: 'eco-ux-dark-mode', num: '4.13', theme: 'Expérience et interface utilisateur',
+    title: "Mode sombre ou économiseur d'énergie",
+    advice: "Proposez un mode sombre via prefers-color-scheme ou un toggle dans l'interface. Les écrans OLED consomment moins avec des fonds sombres.",
+    run: () => {
+      const sheets = [...document.styleSheets];
+      let hasDark = false;
+      for (const sheet of sheets) {
+        try {
+          for (const r of [...sheet.cssRules || []]) {
+            if (r.type === CSSRule.MEDIA_RULE && r.conditionText?.includes('prefers-color-scheme')) { hasDark = true; break; }
+          }
+        } catch {}
+        if (hasDark) break;
+      }
+      const toggleBtn = document.querySelector('[data-theme],[class*="dark-mode"],[class*="theme-toggle"],[aria-label*="thème" i],[aria-label*="dark" i]');
+      if (hasDark || toggleBtn) return asRuleResult({ severity: 'ok', measure: hasDark ? 'Mode sombre via prefers-color-scheme' : 'Toggle de thème présent dans le DOM' });
+      return asRuleResult({ severity: 'mineur', measure: 'Aucun mode sombre détecté (prefers-color-scheme ou toggle)' });
+    }},
+  NT('eco-ux-4.14', '4.14', 'Expérience et interface utilisateur',
+    "Données de géolocalisation non conservées si inutiles",
+    "Ne stockez pas les coordonnées GPS des utilisateurs si elles ne sont pas strictement nécessaires au service."),
+  NT('eco-ux-4.15', '4.15', 'Expérience et interface utilisateur',
+    "Bilan carbone ou mesure d'impact proposé",
+    "Proposez aux utilisateurs un indicateur ou bilan de l'impact environnemental de leur usage du service."),
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 5 — Contenus
+  // ════════════════════════════════════════════════════════════
+  NT('eco-cont-5.1', '5.1', 'Contenus',
+    "Stratégie de contenu sobre définie",
+    "Définissez une politique éditoriale sobre : supprimez les contenus obsolètes, évitez la duplication, limitez les médias lourds non essentiels."),
   { id: 'eco-cont-images-format', num: '5.2', theme: 'Contenus',
-    title: 'Images au format non optimisé',
+    title: "Images au format non optimisé",
     advice: "Utilisez WebP ou AVIF (30-50% plus léger que JPEG/PNG). Servez via <picture>/srcset.",
     run: () => {
-      const all = [...document.querySelectorAll('img')].filter(i => i.complete);
+      const all = [...document.querySelectorAll('img')].filter(i => !inNoscript(i) && i.complete);
       const imgs = all.filter(i => /\.(jpe?g|png)(\?|$)/i.test(i.currentSrc || i.src || ''));
       const denom = all.length || 1;
-      const ratio = imgs.length / denom;
-      const severity = ratio > 0.3 ? 'critique' : imgs.length > 0 ? 'majeur' : 'ok';
+      const severity = imgs.length / denom > 0.3 ? 'critique' : imgs.length > 0 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `${imgs.length} image(s) en JPEG/PNG sur ${denom}`, elements: imgs });
     }},
-  { id: 'eco-cont-images-oversized', num: '5.2', theme: 'Contenus',
-    title: 'Images surdimensionnées',
-    advice: "Servez des images dimensionnées au plus près de leur affichage réel via srcset/sizes.",
+  { id: 'eco-cont-images-oversized', num: '5.3', theme: 'Contenus',
+    title: "Images surdimensionnées",
+    advice: "Servez des images aux dimensions proches de leur affichage réel via srcset/sizes.",
     run: () => {
       const dpr = NR_REFERENCE_VIEWPORT.dpr;
-      const imgs = [...document.querySelectorAll('img')].filter(i => i.complete && i.naturalWidth > 0 && i.clientWidth > 0);
+      const imgs = [...document.querySelectorAll('img')].filter(i => !inNoscript(i) && i.complete && i.naturalWidth > 0 && i.clientWidth > 0);
       const big = imgs.filter(i => i.naturalWidth > i.clientWidth * dpr * 1.5);
       const severity = big.length > 5 ? 'critique' : big.length > 0 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `${big.length} image(s) nettement plus grande(s) que leur affichage`, elements: big });
     }},
-  { id: 'eco-cont-video-preload', num: '5.5', theme: 'Contenus',
-    title: 'Vidéos sans preload="none"',
-    advice: "Ajoutez preload=\"none\" et une affiche (poster) pour différer le téléchargement.",
+  { id: 'eco-cont-video-format', num: '5.4', theme: 'Contenus',
+    title: "Vidéos : format et préchargement",
+    advice: "Ajoutez une source WebM/AV1 (30-40% plus léger que MP4) et preload=\"none\" avec un poster sur les vidéos non essentielles.",
     run: () => {
-      const bad = [...document.querySelectorAll('video')].filter(v => v.getAttribute('preload') !== 'none' && !v.autoplay);
-      const severity = bad.length > 0 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${bad.length} vidéo(s) sans preload="none"`, elements: bad });
+      const videos = [...document.querySelectorAll('video')];
+      if (!videos.length) return asRuleResult({ severity: 'ok', measure: 'Aucune vidéo détectée' });
+      const noWebm = videos.filter(v => {
+        const sources = [...v.querySelectorAll('source')];
+        return !sources.some(s => /webm|av1/i.test(s.type || s.src || '')) && !/\.webm$/i.test(v.src || '');
+      });
+      const noPreload = videos.filter(v => v.getAttribute('preload') !== 'none' && !v.autoplay);
+      const issues = [...new Set([...noWebm, ...noPreload])];
+      const details = [
+        { label: 'Sans source WebM/AV1', value: `${noWebm.length}/${videos.length}` },
+        { label: 'Sans preload="none"', value: `${noPreload.length}/${videos.length}` },
+      ];
+      const severity = (noWebm.length === videos.length || noPreload.length > 2) ? 'majeur'
+        : issues.length > 0 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${issues.length} vidéo(s) à optimiser sur ${videos.length}`, elements: issues, details });
     }},
-  // ---- Frontend
-  { id: 'eco-front-lazy', num: '6.4', theme: 'Frontend',
-    title: 'Images sans lazy-loading',
+  NT('eco-cont-5.5', '5.5', 'Contenus',
+    "Stratégie de compression vidéo",
+    "Encodez vos vidéos avec des paramètres optimisés (codec H.265/AV1, CRF adapté, résolution appropriée à l'usage)."),
+  NT('eco-cont-5.6', '5.6', 'Contenus',
+    "Vidéos limitées aux contenus qui le nécessitent",
+    "Questionnez la pertinence de chaque vidéo. Préférez le texte illustré quand c'est suffisant."),
+  NT('eco-cont-5.7', '5.7', 'Contenus',
+    "Stratégie de cache des contenus",
+    "Définissez des durées de cache adaptées pour chaque type de contenu (images, vidéos, docs)."),
+  NT('eco-cont-5.8', '5.8', 'Contenus',
+    "Documents bureautiques optimisés",
+    "Compressez les PDF et documents téléchargeables. Supprimez les métadonnées inutiles. Proposez des versions légères."),
+  NT('eco-cont-5.9', '5.9', 'Contenus',
+    "Stratégie de durée de vie et archivage des contenus",
+    "Définissez une politique d'archivage et de suppression des contenus obsolètes pour limiter l'empreinte du stockage."),
+  NT('eco-cont-5.10', '5.10', 'Contenus',
+    "Contenus créés dans les formats recommandés",
+    "Formez les contributeurs aux bonnes pratiques : WebP pour les images, PDF/A pour les docs, MP4/WebM pour les vidéos."),
+  { id: 'eco-cont-font-format', num: '5.11', theme: 'Contenus',
+    title: "Polices web : format et nombre",
+    advice: "Utilisez exclusivement le format WOFF2. Limitez à 2 familles max. Préférez les polices système. Utilisez font-display: swap.",
+    run: () => {
+      const fonts = resourceEntries().filter(e => /\.(woff2?|ttf|otf|eot)(\?|$)/i.test(e.name));
+      const nonWoff2 = fonts.filter(e => !/\.woff2(\?|$)/i.test(e.name));
+      const details = fonts.sort((a, b) => b.transferSize - a.transferSize).map(e => ({
+        label: new URL(e.name, location.href).pathname.split('/').pop() || 'font',
+        value: e.transferSize > 0 ? `${Math.round(e.transferSize / 1024)} Ko` : 'caché'
+      }));
+      const severity = fonts.length > 6 ? 'critique' : nonWoff2.length > 0 ? 'majeur' : fonts.length > 4 ? 'majeur' : 'ok';
+      const measure = nonWoff2.length
+        ? `${nonWoff2.length} police(s) en format non-WOFF2 sur ${fonts.length}`
+        : `${fonts.length} fichier(s) de police (tous WOFF2)`;
+      return asRuleResult({ severity, measure, details });
+    }},
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 6 — Frontend
+  // ════════════════════════════════════════════════════════════
+  { id: 'eco-front-css-weight', num: '6.1', theme: 'Frontend',
+    title: "Volume et minification des fichiers CSS",
+    advice: "Minifiez vos CSS (supprime commentaires et espaces). Purgez le CSS inutilisé (PurgeCSS). Évitez les frameworks CSS complets.",
+    run: () => {
+      const css = resourceEntries().filter(e => e.initiatorType === 'link' && /\.css/i.test(e.name));
+      const bytes = css.reduce((a, e) => a + (e.transferSize || 0), 0);
+      const nonMin = css.filter(e => !/\.min\.css/i.test(e.name) && (e.transferSize || 0) > 5000);
+      const details = css.sort((a, b) => b.transferSize - a.transferSize).map(e => ({
+        label: new URL(e.name, location.href).pathname.split('/').pop() || 'style.css',
+        value: `${Math.round(e.transferSize / 1024)} Ko`
+      }));
+      const severity = bytes > 204800 ? 'critique' : nonMin.length > 0 ? 'majeur' : bytes > 102400 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de CSS (${nonMin.length} fichier(s) probablement non minifié(s))`, details });
+    }},
+  { id: 'eco-front-js-weight', num: '6.2', theme: 'Frontend',
+    title: "Volume et minification des fichiers JavaScript",
+    advice: "Minifiez vos JS. Activez le tree-shaking et le code splitting. Supprimez les dépendances inutilisées.",
+    run: () => {
+      const js = resourceEntries().filter(e => e.initiatorType === 'script');
+      const bytes = js.reduce((a, e) => a + (e.transferSize || 0), 0);
+      const nonMin = js.filter(e => !/\.min\.js/i.test(e.name) && (e.transferSize || 0) > 10000);
+      const details = js.sort((a, b) => b.transferSize - a.transferSize).slice(0, 8).map(e => ({
+        label: new URL(e.name, location.href).pathname.split('/').pop() || 'script',
+        value: `${Math.round(e.transferSize / 1024)} Ko`
+      }));
+      const severity = bytes > 512000 ? 'critique' : nonMin.length > 0 ? 'majeur' : bytes > 307200 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de JS (${nonMin.length} fichier(s) probablement non minifié(s))`, details });
+    }},
+  { id: 'eco-front-frameworks', num: '6.3', theme: 'Frontend',
+    title: "Frameworks JavaScript détectés",
+    advice: "Vérifiez que chaque framework est justifié. Préférez des solutions légères ou du JS natif pour des besoins simples. React/Vue/Angular ajoutent ≥30 Ko de runtime.",
+    run: () => {
+      const detected = [];
+      if (window.React) detected.push('React');
+      if (window.Vue || window.__vue_app__) detected.push('Vue');
+      if (window.angular || window.ng) detected.push('Angular');
+      if (window.jQuery || window.$?.fn?.jquery) detected.push('jQuery');
+      if (window.Ember) detected.push('Ember');
+      if (window.Backbone) detected.push('Backbone');
+      if (window.Svelte || document.querySelector('[class^="svelte-"]')) detected.push('Svelte');
+      const details = detected.map(f => ({ label: f, value: 'détecté' }));
+      const severity = detected.length > 2 ? 'majeur' : detected.length > 0 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${detected.length} framework(s) JS : ${detected.join(', ') || 'aucun'}`, details });
+    }},
+  NT('eco-front-6.4', '6.4', 'Frontend',
+    "Feuilles de style inutilisées supprimées",
+    "Analysez la couverture CSS avec les DevTools Chrome (Coverage) ou PurgeCSS pour identifier et supprimer le CSS non utilisé."),
+  { id: 'eco-front-local-cache', num: '6.5', theme: 'Frontend',
+    title: "Mise en cache locale des données",
+    advice: "Utilisez un Service Worker avec la Cache API pour mettre en cache les assets statiques et réduire les requêtes réseau.",
+    run: () => {
+      const hasSW = 'serviceWorker' in navigator && !!navigator.serviceWorker.controller;
+      const hasCache = 'caches' in window;
+      if (!hasSW && !hasCache) return asRuleResult({ severity: 'mineur', measure: 'Aucun Service Worker ni Cache API utilisé' });
+      if (hasSW) return asRuleResult({ severity: 'ok', measure: 'Service Worker actif avec Cache API disponible' });
+      return asRuleResult({ severity: 'mineur', measure: 'Cache API disponible mais aucun Service Worker actif' });
+    }},
+  { id: 'eco-front-lazy', num: '6.6', theme: 'Frontend',
+    title: "Images sans chargement différé (lazy loading)",
     advice: "Ajoutez loading=\"lazy\" sur les images hors de la zone visible initiale.",
     run: () => {
       const fold = NR_REFERENCE_VIEWPORT.height;
       const docTop = (img) => { let y = 0, el = img; while (el) { y += el.offsetTop || 0; el = el.offsetParent; } return y; };
-      const below = [...document.querySelectorAll('img')].filter(img => docTop(img) > fold && img.loading !== 'lazy' && !img.dataset.src);
+      const below = [...document.querySelectorAll('img')].filter(img => !inNoscript(img) && docTop(img) > fold && img.loading !== 'lazy' && !img.dataset.src);
       const severity = below.length > 3 ? 'critique' : below.length > 0 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `${below.length} image(s) hors viewport sans lazy-load`, elements: below });
     }},
-  { id: 'eco-front-js-weight', num: '6.2', theme: 'Frontend',
-    title: 'Volume de JavaScript',
-    advice: "Activez le tree-shaking, le code splitting, supprimez les dépendances inutilisées.",
-    run: () => {
-      const js = resourceEntries().filter(e => e.initiatorType === 'script');
-      const bytes = js.reduce((a,e)=>a+(e.transferSize||0),0);
-      const details = js
-        .sort((a, b) => b.transferSize - a.transferSize)
-        .slice(0, 8)
-        .map(e => ({
-          label: new URL(e.name, location.href).pathname.split('/').pop() || 'script',
-          value: `${Math.round(e.transferSize / 1024)} Ko`
-        }));
-      const severity = bytes > 512000 ? 'critique' : bytes > 307200 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de JS (${js.length} fichier(s))`, details });
-    }},
-  { id: 'eco-front-css-weight', num: '6.1', theme: 'Frontend',
-    title: 'Volume de CSS',
-    advice: "Purgez le CSS inutilisé (PurgeCSS), évitez les frameworks complets si peu utilisés.",
-    run: () => {
-      const css = resourceEntries().filter(e => e.initiatorType === 'link' && /\.css/i.test(e.name));
-      const bytes = css.reduce((a,e)=>a+(e.transferSize||0),0);
-      const details = css
-        .sort((a, b) => b.transferSize - a.transferSize)
-        .map(e => ({
-          label: new URL(e.name, location.href).pathname.split('/').pop() || 'style.css',
-          value: `${Math.round(e.transferSize / 1024)} Ko`
-        }));
-      const severity = bytes > 204800 ? 'critique' : bytes > 102400 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(bytes/1024).toFixed(0)} Ko de CSS (${css.length} fichier(s))`, details });
-    }},
-  { id: 'eco-front-fonts', num: '6.6', theme: 'Frontend',
-    title: 'Polices web excessives',
-    advice: "Limitez à 2 familles maximum, utilisez font-display: swap, préférez les polices système.",
-    run: () => {
-      const fonts = resourceEntries().filter(e => /\.(woff2?|ttf|otf|eot)(\?|$)/i.test(e.name));
-      const details = fonts
-        .sort((a, b) => b.transferSize - a.transferSize)
-        .map(e => ({
-          label: new URL(e.name, location.href).pathname.split('/').pop() || 'font',
-          value: e.transferSize > 0 ? `${Math.round(e.transferSize / 1024)} Ko` : 'caché'
-        }));
-      const severity = fonts.length > 6 ? 'critique' : fonts.length > 4 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${fonts.length} fichier(s) de police`, details });
-    }},
-  { id: 'eco-front-dom', num: '6.3', theme: 'Frontend',
-    title: 'Taille du DOM',
-    advice: "Utilisez la virtualisation pour les listes longues, simplifiez la structure HTML.",
-    run: () => {
-      const n = document.querySelectorAll('*').length;
-      const severity = n > 1500 ? 'critique' : n > 800 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${n} nœuds DOM` });
-    }},
-  { id: 'eco-front-img-dim', num: '5.2', theme: 'Frontend',
-    title: 'Images sans width/height',
-    advice: "Spécifiez width et height (ou aspect-ratio CSS) pour éviter les reflows (CLS).",
-    run: () => {
-      const miss = [...document.querySelectorAll('img')].filter(img => (!img.hasAttribute('width') || !img.hasAttribute('height')) && !img.style.aspectRatio);
-      const severity = miss.length > 3 ? 'majeur' : miss.length > 0 ? 'mineur' : 'ok';
-      return asRuleResult({ severity, measure: `${miss.length} image(s) sans dimensions`, elements: miss });
-    }},
-  { id: 'eco-front-render-blocking', num: '6.1', theme: 'Frontend',
-    title: 'Ressources bloquant le rendu',
-    advice: "Ajoutez defer/async sur les scripts, chargez le CSS non critique de manière asynchrone.",
+  NT('eco-front-6.7', '6.7', 'Frontend',
+    "Appels aux API externes limités",
+    "Auditez les appels vers des APIs tierces. Mettez en cache les réponses. Regroupez les requêtes (batching). Évitez les appels redondants."),
+  { id: 'eco-front-render-blocking', num: '6.8', theme: 'Frontend',
+    title: "Ressources bloquant le rendu",
+    advice: "Ajoutez defer/async sur les scripts. Chargez le CSS non critique en asynchrone. Utilisez rel=preload pour les ressources critiques.",
     run: () => {
       const scr = [...document.querySelectorAll('head script[src]')].filter(s => !s.async && !s.defer && !s.type?.includes('module'));
       const severity = scr.length > 2 ? 'critique' : scr.length > 0 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `${scr.length} script(s) synchrone(s) en <head>`, elements: scr });
     }},
-  // ---- Backend
+  { id: 'eco-front-duplicates', num: '6.9', theme: 'Frontend',
+    title: "Ressources chargées en double",
+    advice: "Supprimez les imports redondants de scripts et CSS. Vérifiez votre bundler (webpack, Vite) pour éviter les chunks dupliqués.",
+    run: () => {
+      const urls = resourceEntries().map(e => e.name);
+      const seen = new Set(), dups = new Set();
+      urls.forEach(u => { if (seen.has(u)) dups.add(u); else seen.add(u); });
+      const details = [...dups].slice(0, 10).map(u => ({
+        label: new URL(u, location.href).pathname.split('/').pop() || u,
+        value: `${urls.filter(x => x === u).length}x`
+      }));
+      const severity = dups.size > 3 ? 'majeur' : dups.size > 0 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${dups.size} ressource(s) chargée(s) plusieurs fois`, details });
+    }},
+  NT('eco-front-6.10', '6.10', 'Frontend',
+    "Fonctionnalités non utilisées supprimées",
+    "Faites une revue du code pour supprimer les fonctionnalités abandonnées, les dépendances inutilisées et le code mort."),
+  { id: 'eco-front-page-weight', num: '6.11', theme: 'Frontend',
+    title: "Volume total de données transférées",
+    advice: "Compressez les images (WebP/AVIF), minifiez JS/CSS, activez la compression serveur (gzip/brotli), supprimez les ressources inutiles.",
+    run: () => {
+      const entries = resourceEntries();
+      const total = entries.reduce((a, e) => a + (e.transferSize || 0), 0) + (navEntry()?.transferSize || 0);
+      const all = [...entries, navEntry()].filter(e => e && e.transferSize > 0);
+      const details = all.sort((a, b) => b.transferSize - a.transferSize).slice(0, 10).map(e => ({
+        label: new URL(e.name, location.href).pathname.split('/').pop() || e.name,
+        value: `${Math.round(e.transferSize / 1024)} Ko`
+      }));
+      const severity = total > 2097152 ? 'critique' : total > 1048576 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko transférés (${entries.length + 1} requêtes)`, details });
+    }},
+  { id: 'eco-front-compression', num: '6.12', theme: 'Frontend',
+    title: "Compression des transferts (gzip/brotli)",
+    advice: "Activez gzip ou brotli sur votre serveur pour le HTML, CSS, JS et SVG. Brotli offre 15-20% de compression supplémentaire.",
+    run: () => {
+      const textual = resourceEntries().filter(e => /\.(js|mjs|css|svg|json|html?|xml)(\?|$)/i.test(e.name) && e.encodedBodySize > 1024);
+      const uncompressed = textual.filter(e => e.encodedBodySize > 0 && e.decodedBodySize > 0 && e.encodedBodySize === e.decodedBodySize);
+      const severity = uncompressed.length / (textual.length || 1) > 0.5 ? 'critique' : uncompressed.length > 0 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${uncompressed.length} ressource(s) textuelle(s) non compressée(s) sur ${textual.length}` });
+    }},
+  { id: 'eco-front-dom', num: '6.3', theme: 'Frontend',
+    title: "Taille du DOM",
+    advice: "Réduisez le nombre de nœuds DOM. Utilisez la virtualisation pour les listes longues. Simplifiez la structure HTML.",
+    run: () => {
+      const n = document.querySelectorAll('*').length;
+      const severity = n > 1500 ? 'critique' : n > 800 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${n} nœuds DOM` });
+    }},
+  { id: 'eco-front-img-dim', num: '5.3', theme: 'Frontend',
+    title: "Images sans dimensions explicites",
+    advice: "Spécifiez width et height (ou aspect-ratio CSS) pour éviter les reflows de mise en page (CLS).",
+    run: () => {
+      const miss = [...document.querySelectorAll('img')].filter(img => !inNoscript(img) && (!img.hasAttribute('width') || !img.hasAttribute('height')) && !img.style.aspectRatio);
+      const severity = miss.length > 3 ? 'majeur' : miss.length > 0 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${miss.length} image(s) sans dimensions`, elements: miss });
+    }},
+  { id: 'eco-front-http-requests', num: '6.2', theme: 'Frontend',
+    title: "Nombre de requêtes HTTP par page",
+    advice: "Mutualisez les fichiers JS/CSS (bundling), utilisez des sprites SVG, groupez les appels API, activez HTTP/2.",
+    run: () => {
+      const count = resourceEntries().length + 1;
+      const byType = {};
+      resourceEntries().forEach(e => { const t = e.initiatorType || 'other'; byType[t] = (byType[t] || 0) + 1; });
+      const details = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([type, cnt]) => ({ label: type, value: `${cnt}` }));
+      const severity = count > 80 ? 'critique' : count > 40 ? 'majeur' : 'ok';
+      return asRuleResult({ severity, measure: `${count} requêtes HTTP`, details });
+    }},
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 7 — Backend
+  // ════════════════════════════════════════════════════════════
+  NT('eco-back-7.2', '7.2', 'Backend',
+    "Serveur web optimisé",
+    "Configurez votre serveur web (Nginx, Apache, Caddy) pour activer la compression, le cache et HTTP/2."),
+  NT('eco-back-7.3', '7.3', 'Backend',
+    "Requêtes base de données optimisées",
+    "Évitez les requêtes N+1. Utilisez des index adaptés. Analysez les requêtes lentes avec EXPLAIN."),
+  NT('eco-back-7.4', '7.4', 'Backend',
+    "Traitements côté serveur limités au nécessaire",
+    "Ne calculez côté serveur que ce qui est nécessaire à la réponse. Différez les traitements lourds hors du chemin critique."),
+  NT('eco-back-7.5', '7.5', 'Backend',
+    "Données calculées mises en cache côté serveur",
+    "Mettez en cache les résultats de calculs coûteux (Redis, Memcached, cache HTTP). Définissez des TTL adaptés."),
+  NT('eco-back-7.6', '7.6', 'Backend',
+    "Mise en cache HTTP configurée",
+    "Configurez les headers Cache-Control, ETag et Last-Modified pour permettre au navigateur et aux proxies de mettre en cache les réponses."),
+  NT('eco-back-7.7', '7.7', 'Backend',
+    "Architecture serverless ou mutualisée si pertinente",
+    "Évaluez si une architecture serverless ou mutualisée réduit les ressources allouées par rapport à un serveur dédié sous-utilisé."),
+  NT('eco-back-7.8', '7.8', 'Backend',
+    "Stockage des données optimisé",
+    "Utilisez le type de stockage adapté (SGBDR, NoSQL, fichiers). Compressez les données volumineuses. Évitez les redondances."),
+  NT('eco-back-7.9', '7.9', 'Backend',
+    "API efficace (pas de sur-livraison de données)",
+    "Implémenter GraphQL ou des champs sélectifs pour éviter de renvoyer plus de données que nécessaire. Paginez les listes."),
   { id: 'eco-back-ttfb', num: '7.1', theme: 'Backend',
-    title: 'Temps de réponse serveur élevé (TTFB)',
-    advice: "Un TTFB élevé indique un backend lent : mise en cache serveur, optimisation des requêtes SQL, CDN.",
+    title: "Temps de réponse serveur (TTFB)",
+    advice: "Un TTFB élevé signale un backend lent. Activez le cache serveur, optimisez les requêtes SQL, utilisez un CDN.",
     run: () => {
       const nav = navEntry();
       if (!nav) return { status: 'C', count: 0, measure: 'Mesure TTFB indisponible' };
@@ -1348,34 +1671,92 @@ const RULES_ECO = [
       const severity = ttfb > 1500 ? 'critique' : ttfb > 600 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `TTFB : ${Math.round(ttfb)} ms` });
     }},
-  // ---- Hébergement
-  { id: 'eco-host-cache', num: '8.3', theme: 'Hébergement',
-    title: 'Ressources probablement non mises en cache',
-    advice: "Configurez Cache-Control avec des durées longues sur vos assets versionnés (JS/CSS/images).",
-    run: () => {
-      const entries = resourceEntries();
-      if (entries.length === 0) return asRuleResult({ severity: 'ok', measure: 'Aucune ressource analysable' });
-      const notCached = entries.filter(e => e.transferSize > 0 && e.encodedBodySize > 0 && e.transferSize >= e.encodedBodySize);
-      const ratio = notCached.length / entries.length;
-      const severity = ratio > 0.8 ? 'critique' : ratio > 0.5 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${notCached.length}/${entries.length} ressource(s) servie(s) sans cache apparent` });
-    }},
-  { id: 'eco-host-compression', num: '8.2', theme: 'Hébergement',
-    title: 'Ressources textuelles probablement non compressées',
-    advice: "Activez gzip ou brotli sur votre serveur pour le HTML, CSS, JS et SVG.",
-    run: () => {
-      const textual = resourceEntries().filter(e =>
-        /\.(js|mjs|css|svg|json|html?|xml)(\?|$)/i.test(e.name) && e.encodedBodySize > 1024
-      );
-      const uncompressed = textual.filter(e => e.encodedBodySize > 0 && e.decodedBodySize > 0 && e.encodedBodySize === e.decodedBodySize);
-      const ratio = textual.length ? uncompressed.length / textual.length : 0;
-      const severity = ratio > 0.5 ? 'critique' : uncompressed.length > 0 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${uncompressed.length} ressource(s) textuelle(s) non compressée(s) sur ${textual.length}` });
-    }},
-  // ---- Algorithmie
+  NT('eco-back-7.10', '7.10', 'Backend',
+    "Logs serveur raisonnés",
+    "Limitez le niveau de logs en production. Archivez et purgez les logs régulièrement. Évitez les logs verbeux en temps réel."),
+  NT('eco-back-7.11', '7.11', 'Backend',
+    "Emails transactionnels limités",
+    "N'envoyez que les emails strictement nécessaires. Regroupez les notifications. Évitez les relances automatiques inutiles."),
+  NT('eco-back-7.12', '7.12', 'Backend',
+    "Médias optimisés côté serveur",
+    "Utilisez un pipeline de traitement des médias pour les redimensionner et les convertir automatiquement à l'upload."),
+  NT('eco-back-7.13', '7.13', 'Backend',
+    "Outils de build adaptés",
+    "Configurez votre CI/CD pour éviter les builds inutiles. Utilisez le cache de build (Docker layers, turborepo)."),
+  NT('eco-back-7.14', '7.14', 'Backend',
+    "Durée de rétention des données définie",
+    "Définissez et appliquez des politiques de rétention des données (RGPD). Supprimez les données inutiles automatiquement."),
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 8 — Hébergement
+  // ════════════════════════════════════════════════════════════
+  NT('eco-host-8.1', '8.1', 'Hébergement',
+    "Hébergeur avec politique environnementale",
+    "Choisissez un hébergeur qui publie ses engagements environnementaux (énergie renouvelable, PUE, bilan carbone)."),
+  NT('eco-host-8.2', '8.2', 'Hébergement',
+    "PUE (Power Usage Effectiveness) du datacenter",
+    "Préférez un hébergeur dont le PUE est inférieur à 1,5 (idéalement < 1,2). Demandez ce KPI à votre hébergeur."),
+  NT('eco-host-8.3', '8.3', 'Hébergement',
+    "Alimentation électrique renouvelable",
+    "Vérifiez que votre hébergeur utilise majoritairement des énergies renouvelables et publie des certificats (EAC/GO)."),
+  NT('eco-host-8.4', '8.4', 'Hébergement',
+    "Localisation géographique adaptée",
+    "Hébergez vos serveurs au plus proche de vos utilisateurs pour réduire la latence et les transferts longue distance."),
+  NT('eco-host-8.5', '8.5', 'Hébergement',
+    "Certification environnementale de l'hébergeur",
+    "Privilégiez un hébergeur certifié ISO 50001 (énergie) ou équivalent. Vérifiez les labels (HDS, ISO 14001, etc.)."),
+  NT('eco-host-8.6', '8.6', 'Hébergement',
+    "Hébergement mutualisé si pertinent",
+    "Évaluez si l'hébergement mutualisé est suffisant. Un serveur dédié sous-utilisé consomme inutilement."),
+  NT('eco-host-8.7', '8.7', 'Hébergement',
+    "Consommation énergétique des serveurs optimisée",
+    "Activez le dimensionnement automatique des ressources (auto-scaling). Éteignez les environnements non-prod hors des heures ouvrées."),
+  NT('eco-host-8.8', '8.8', 'Hébergement',
+    "Ressources serveur adaptées à la charge réelle",
+    "Analysez la consommation CPU/RAM réelle et ajustez les instances. Évitez le sur-provisionnement chronique."),
+  NT('eco-host-8.9', '8.9', 'Hébergement',
+    "Politique de fin de vie des serveurs",
+    "Définissez une politique de remplacement/reconditionnement du matériel. Favorisez les hébergeurs qui reconditionnent leurs serveurs."),
+
+  // ════════════════════════════════════════════════════════════
+  // Thématique 9 — Algorithmie
+  // ════════════════════════════════════════════════════════════
   NT('eco-algo-complexity', '9.1', 'Algorithmie',
-    "Complexité algorithmique des traitements côté client",
-    "Vérifiez que les boucles, tris et traitements lourds ne sont pas effectués en temps réel sur de gros volumes côté client."),
+    "Complexité algorithmique maîtrisée",
+    "Vérifiez que les algorithmes côté client n'ont pas de complexité superflue (O(n²) sur de grands ensembles). Utilisez des structures de données adaptées."),
+  NT('eco-algo-9.2', '9.2', 'Algorithmie',
+    "Algorithmes adaptés aux besoins",
+    "Choisissez l'algorithme le plus sobre pour chaque traitement (ex : recherche binaire vs linéaire, hash vs comparaison)."),
+  NT('eco-algo-9.3', '9.3', 'Algorithmie',
+    "Recours à l'intelligence artificielle limité",
+    "Utilisez l'IA uniquement là où elle apporte une valeur significative. Préférez des règles métier simples quand elles suffisent."),
+  NT('eco-algo-9.4', '9.4', 'Algorithmie',
+    "Impact environnemental des modèles IA évalué",
+    "Mesurez l'empreinte carbone de l'entraînement et de l'inférence de vos modèles (CodeCarbon, ML CO2 Impact)."),
+  NT('eco-algo-9.5', '9.5', 'Algorithmie',
+    "Modèles d'apprentissage optimisés",
+    "Appliquez pruning, quantization et distillation pour réduire la taille et la consommation de vos modèles ML."),
+  NT('eco-algo-9.6', '9.6', 'Algorithmie',
+    "Modèles pré-entraînés réutilisés si disponibles",
+    "Réutilisez des modèles pré-entraînés (fine-tuning) plutôt que d'entraîner from scratch pour économiser les ressources."),
+  NT('eco-algo-9.7', '9.7', 'Algorithmie',
+    "Modèles IA obsolètes mis à jour ou supprimés",
+    "Maintenez un inventaire des modèles déployés. Supprimez les modèles non utilisés ou remplacés par de meilleures versions."),
+  NT('eco-algo-9.8', '9.8', 'Algorithmie',
+    "Critères de sortie définis pour les algorithmes itératifs",
+    "Définissez des conditions d'arrêt claires (convergence, nombre max d'itérations) pour éviter les traitements infinis."),
+  NT('eco-algo-9.9', '9.9', 'Algorithmie',
+    "Résultats de calculs mis en cache",
+    "Mémoïsez les résultats coûteux (calculs récurrents, réponses API). Évitez de recalculer ce qui n'a pas changé."),
+  NT('eco-algo-9.10', '9.10', 'Algorithmie',
+    "Stockage et traitement des données optimisés",
+    "Utilisez des formats de données compacts. Traitez les données en flux (streaming) plutôt qu'en chargeant tout en mémoire."),
+  NT('eco-algo-9.11', '9.11', 'Algorithmie',
+    "Données traitées à proximité de leur source",
+    "Traitez les données là où elles sont générées (edge computing) pour réduire les transferts réseau longue distance."),
+  NT('eco-algo-9.12', '9.12', 'Algorithmie',
+    "Pertinence de chaque traitement de données évaluée",
+    "Questionnez chaque traitement de données : est-il nécessaire ? Peut-il être différé, regroupé ou supprimé ?"),
 ];
 
 // ═══════════════════════════════════════════════════════════════

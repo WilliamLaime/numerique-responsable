@@ -29,6 +29,11 @@ function waitForTabLoad(
       }
     };
     chrome.tabs.onUpdated.addListener(listener);
+    // Fix race condition : si le tab était déjà chargé avant l'enregistrement du listener
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) return;
+      if (tab?.status === 'complete') setTimeout(finish, settleDelay);
+    });
   });
 }
 

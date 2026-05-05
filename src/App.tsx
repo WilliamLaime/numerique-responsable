@@ -6,6 +6,7 @@ import SelectScreen from './components/screens/SelectScreen';
 import LoadingScreen from './components/screens/LoadingScreen';
 import ResultsScreen from './components/screens/ResultsScreen';
 import ErrorScreen from './components/screens/ErrorScreen';
+import ContrastChecker from './components/ContrastChecker';
 
 export default function App() {
   const screen = useAuditStore((s) => s.screen);
@@ -19,8 +20,9 @@ export default function App() {
         <LoadingScreen active={screen === 'loading'} />
         <ResultsScreen active={screen === 'results'} startAudit={startAudit} />
         <ErrorScreen active={screen === 'error'} />
+        <AppFooter />
       </main>
-      <AppFooter />
+      <ContrastChecker />
     </>
   );
 }

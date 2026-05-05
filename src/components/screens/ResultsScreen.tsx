@@ -3,7 +3,7 @@ import { useAuditStore, auditStore } from '../../store/auditStore';
 import { useExport } from '../../hooks/useExport';
 import { useStorage } from '../../hooks/useStorage';
 import { useModal } from '../../contexts/ModalContext';
-import { jumpToElement, toggleTabOrder } from '../../hooks/useAuditRunner';
+import { jumpToElement } from '../../hooks/useAuditRunner';
 import { slimPagesResults } from '../../lib/exportUtils';
 import { gradeClass, RGAA_TO_WCAG, WCAG_GUIDELINES_ORDER, WCAG_GUIDELINE_LABELS, WCAG_UNDERSTANDING_SLUG } from '../../lib/grading';
 import { themeKeyOf, sortEntries } from '../../lib/aggregation';
@@ -11,8 +11,6 @@ import { RGAA_THEMES_ORDER, RGESN_THEMES, STATUS_LABEL } from '../../lib/grading
 import { nrToast } from '../../lib/toast';
 import type { AggregatedEntry, ByPageEntry, AuditMode, Referential, RuleResult, StatusCode } from '../../types/audit';
 
-const TOOL_A11Y_COVERAGE = Math.round(63 / 106 * 100); // 59
-const TOOL_ECO_COVERAGE  = Math.round(18 / 19 * 100);  // 95
 
 interface Props {
   active: boolean;
@@ -138,6 +136,9 @@ function IssueCard({ entry, kind, pageInfo, referential = 'rgaa', override, onSe
         <span className={`issue-badge status-${status}`} title={STATUS_LABEL[status] || status}>
           {status}
         </span>
+        {!pageInfo && override && rawStatus === 'NT' && (
+          <span className="issue-badge badge-manual" title="Validé manuellement">✎ Manuel</span>
+        )}
         {sev && <span className={`issue-badge sev-${sev}`}>{sev}</span>}
         <div className="issue-title">
           {r.title}
@@ -414,11 +415,10 @@ export default function ResultsScreen({ active, startAudit }: Props) {
 
   const manualOverrides = useAuditStore((s) => s.manualOverrides);
 
-  const { exportCsv, exportPdf } = useExport();
+  const { exportCsv, exportPdf, exportAi } = useExport();
   const { saveAudit } = useStorage();
   const { nrPrompt } = useModal();
   const [pdfLoading, setPdfLoading] = useState(false);
-  const [tabOrderActive, setTabOrderActive] = useState(false);
 
   const effectiveStatusCounts = useMemo(() => {
     const empty = () => ({ C: 0, NC: 0, NA: 0, NT: 0 });
@@ -585,15 +585,12 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <span className="btn-label">{pdfLoading ? 'En cours…' : 'PDF'}</span>
           </button>
           <button
-            className={`action-btn${tabOrderActive ? ' active' : ''}`}
-            title="Visualiser l'ordre de tabulation sur la page"
-            onClick={async () => {
-              const active = await toggleTabOrder();
-              setTabOrderActive(active ?? false);
-            }}
+            className="action-btn"
+            title="Exporter les non-conformités pour correction par IA"
+            onClick={() => exportAi()}
           >
-            <span className="btn-icon" aria-hidden="true">⇥</span>
-            <span className="btn-label">Tab order</span>
+            <span className="btn-icon" aria-hidden="true">🤖</span>
+            <span className="btn-label">Export IA</span>
           </button>
         </div>
         <button
@@ -645,14 +642,12 @@ export default function ResultsScreen({ active, startAudit }: Props) {
         <p className="legend-note">Les critères Non testé (NT) et Non applicable (NA) ne sont pas comptabilisés dans le score.</p>
         {(mode === 'a11y' || mode === 'both') && (
           <p className="legend-coverage">
-            Accessibilité — <strong>{auditCoverage('a11y')}%</strong> des critères testés lors de cet audit
-            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_A11Y_COVERAGE}%</strong> du RGAA (106 critères)
+            Accessibilité — <strong>{auditCoverage('a11y')}%</strong> des critères testés lors de cet audit (106 critères)
           </p>
         )}
         {(mode === 'eco' || mode === 'both') && (
           <p className="legend-coverage">
-            Écoconception — <strong>{auditCoverage('eco')}%</strong> des critères testés lors de cet audit
-            &nbsp;·&nbsp; couverture de l'outil : <strong>~{TOOL_ECO_COVERAGE}%</strong> du RGESN (79 critères)
+            Écoconception — <strong>{auditCoverage('eco')}%</strong> des critères testés lors de cet audit (101 critères)
           </p>
         )}
       </div>
@@ -699,10 +694,10 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             key={code}
             className={`status-chip ${code}${activeStatuses.has(code) ? ' active' : ''}`}
             data-status={code}
-            title={code === 'NC' ? 'Critères en échec' : code === 'C' ? 'Critères validés automatiquement' : 'Critères sans objet sur la page'}
+            title={code === 'NC' ? 'Critères en échec' : code === 'C' ? 'Critères validés automatiquement' : code === 'NT' ? 'Critères non testés automatiquement' : 'Critères sans objet sur la page'}
             onClick={() => toggleStatus(code)}
           >
-            {code === 'NC' ? '✗ Non conforme' : code === 'C' ? '✓ Conforme' : '− Non applicable'}{' '}
+            {code === 'NC' ? '✗ Non conforme' : code === 'C' ? '✓ Conforme' : code === 'NT' ? '? Non testé' : '− Non applicable'}{' '}
             <span className="chip-count">{statusCounts[kind][code]}</span>
           </button>
         ))}
