@@ -1269,12 +1269,15 @@ const RULES_ECO = [
     title: "Stratégie de cache des ressources",
     advice: "Configurez Cache-Control avec des durées longues (1 an) sur vos assets versionnés (JS/CSS/images).",
     run: () => {
-      const entries = resourceEntries();
+      const entries = resourceEntries().filter(e => e.encodedBodySize > 0);
       if (!entries.length) return asRuleResult({ severity: 'ok', measure: 'Aucune ressource analysable' });
-      const notCached = entries.filter(e => e.transferSize > 0 && e.encodedBodySize > 0 && e.transferSize >= e.encodedBodySize);
-      const ratio = notCached.length / entries.length;
-      const severity = ratio > 0.8 ? 'critique' : ratio > 0.5 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${notCached.length}/${entries.length} ressource(s) servie(s) sans cache apparent` });
+      const fromCache = entries.filter(e => e.transferSize === 0);
+      const ratio = fromCache.length / entries.length;
+      if (fromCache.length === 0) {
+        return { status: 'NT', count: 0, measure: `Session fraîche — cache non évaluable (${entries.length} ressource(s)). Relancez l'audit après une première visite de la page.`, manualPrompt: 'Vérifiez que vos assets versionnés ont un Cache-Control avec max-age long (ex : 1 an).' };
+      }
+      const severity = ratio < 0.3 ? 'majeur' : ratio < 0.6 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${fromCache.length}/${entries.length} ressource(s) servies depuis le cache (${Math.round(ratio * 100)}%)` });
     }},
   NT('eco-arch-3.7', '3.7', 'Architecture',
     "Adoption d'IPv6",
@@ -1588,14 +1591,14 @@ const RULES_ECO = [
     advice: "Compressez les images (WebP/AVIF), minifiez JS/CSS, activez la compression serveur (gzip/brotli), supprimez les ressources inutiles.",
     run: () => {
       const entries = resourceEntries();
-      const total = entries.reduce((a, e) => a + (e.transferSize || 0), 0) + (navEntry()?.transferSize || 0);
-      const all = [...entries, navEntry()].filter(e => e && e.transferSize > 0);
-      const details = all.sort((a, b) => b.transferSize - a.transferSize).slice(0, 10).map(e => ({
+      const total = entries.reduce((a, e) => a + (e.encodedBodySize || 0), 0) + (navEntry()?.encodedBodySize || 0);
+      const all = [...entries, navEntry()].filter(e => e && e.encodedBodySize > 0);
+      const details = all.sort((a, b) => b.encodedBodySize - a.encodedBodySize).slice(0, 10).map(e => ({
         label: new URL(e.name, location.href).pathname.split('/').pop() || e.name,
-        value: `${Math.round(e.transferSize / 1024)} Ko`
+        value: `${Math.round(e.encodedBodySize / 1024)} Ko`
       }));
       const severity = total > 2097152 ? 'critique' : total > 1048576 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko transférés (${entries.length + 1} requêtes)`, details });
+      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko (${entries.length + 1} ressources)`, details });
     }},
   { id: 'eco-front-compression', num: '6.12', theme: 'Frontend',
     title: "Compression des transferts (gzip/brotli)",
