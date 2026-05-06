@@ -3,7 +3,7 @@ import { useAuditStore, auditStore } from '../../store/auditStore';
 import { useExport } from '../../hooks/useExport';
 import { useStorage } from '../../hooks/useStorage';
 import { useModal } from '../../contexts/ModalContext';
-import { jumpToElement } from '../../hooks/useAuditRunner';
+import { jumpToElement, navigateToPage } from '../../hooks/useAuditRunner';
 import { slimPagesResults } from '../../lib/exportUtils';
 import { gradeClass, RGAA_TO_WCAG, WCAG_GUIDELINES_ORDER, WCAG_GUIDELINE_LABELS, WCAG_UNDERSTANDING_SLUG } from '../../lib/grading';
 import { themeKeyOf, sortEntries } from '../../lib/aggregation';
@@ -97,10 +97,14 @@ function IssueCard({ entry, kind, pageInfo, referential = 'rgaa', override, onSe
           </div>
           {entry.byPage.map((p) => (
             <div key={p.url} className="rule-page-item">
-              <span className="url">
+              <button
+                className="url url-nav-btn"
+                title="Ouvrir cette page"
+                onClick={(e) => { e.stopPropagation(); void navigateToPage(p.url); }}
+              >
                 {p.url}{' '}
                 <span className={`mini-badge status-${p.status}`}>{p.status}</span>
-              </span>
+              </button>
               {p.samples?.length ? (
                 <div className="samples-list">
                   {p.samples.map((s) => (
@@ -114,13 +118,27 @@ function IssueCard({ entry, kind, pageInfo, referential = 'rgaa', override, onSe
       );
     }
     const only = entry.byPage[0];
-    return only?.samples?.length ? (
-      <div className="samples-list">
-        {only.samples.map((s) => (
-          <SampleBtn key={s.auditId} auditId={s.auditId} outer={s.outer || s.selector} pageUrl={only.url} />
-        ))}
-      </div>
-    ) : null;
+    if (!only) return null;
+    return (
+      <>
+        {only.url && (
+          <button
+            className="url url-nav-btn"
+            title="Ouvrir cette page"
+            onClick={(e) => { e.stopPropagation(); void navigateToPage(only.url); }}
+          >
+            {only.url}
+          </button>
+        )}
+        {only.samples?.length ? (
+          <div className="samples-list">
+            {only.samples.map((s) => (
+              <SampleBtn key={s.auditId} auditId={s.auditId} outer={s.outer || s.selector} pageUrl={only.url} />
+            ))}
+          </div>
+        ) : null}
+      </>
+    );
   })();
 
   return (

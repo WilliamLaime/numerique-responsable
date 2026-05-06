@@ -185,6 +185,15 @@ export async function jumpToElement(pageUrl: string, auditId: string): Promise<v
   }
 }
 
+export async function navigateToPage(url: string): Promise<void> {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    await chrome.tabs.update(tab.id!, { url, active: true });
+  } catch (e) {
+    console.error('navigateToPage failed', e);
+  }
+}
+
 export async function toggleTabOrder(): Promise<boolean> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
