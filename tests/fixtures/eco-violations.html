@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<!--
+  Fixture éco-conception — violations automatisables
+  Règles ciblées :
+    eco-spec-viewport        : user-scalable=no → NC
+    eco-ux-video-autoplay    : <video autoplay> sans muted → NC
+    eco-front-render-blocking: <script src> synchrone en <head> → NC
+    eco-front-lazy           : images hors viewport sans loading="lazy" → NC
+    eco-ux-animations        : @keyframes sans prefers-reduced-motion → NC
+-->
+<head>
+  <meta charset="UTF-8">
+  <title>Éco — violations</title>
+  <!-- eco-spec-viewport : user-scalable=no bloque le zoom → NC -->
+  <meta name="viewport" content="width=device-width, user-scalable=no">
+
+  <!-- eco-front-render-blocking : script synchrone en <head> → NC -->
+  <script src="non-existent-blocking.js"></script>
+
+  <style>
+    body { font-family: sans-serif; }
+    /* eco-ux-animations : @keyframes sans prefers-reduced-motion → NC */
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+    .spinner { animation: spin 1s linear infinite; }
+  </style>
+</head>
+<body>
+  <h1>Page éco avec violations</h1>
+
+  <!-- eco-ux-video-autoplay : autoplay sans muted → NC critique -->
+  <video id="autoplay-video" autoplay src="fake-video.mp4" width="320" height="240"></video>
+
+  <!-- Séparateur vertical pour que les images suivantes soient clairement hors viewport -->
+  <div style="height:2000px;"></div>
+
+  <!-- eco-front-lazy : 5 images hors viewport (après 2000px) sans loading="lazy" → NC critique -->
+  <img src="img1.jpg" alt="Image 1">
+  <img src="img2.jpg" alt="Image 2">
+  <img src="img3.jpg" alt="Image 3">
+  <img src="img4.jpg" alt="Image 4">
+  <img src="img5.jpg" alt="Image 5">
+</body>
+</html>

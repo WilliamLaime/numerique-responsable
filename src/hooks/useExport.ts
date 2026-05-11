@@ -3,7 +3,7 @@ import { auditStore } from '../store/auditStore';
 import { csvEscape } from '../lib/exportUtils';
 import { themeKeyOf, sortEntries } from '../lib/aggregation';
 import { RGAA_TO_WCAG } from '../lib/grading';
-import type { AggregatedEntry } from '../types/audit';
+import type { AggregatedEntry, RuleResult, Referential } from '../types/audit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type JsPDFDoc = any;
@@ -13,6 +13,96 @@ declare global {
     jspdf: { jsPDF: new (opts: Record<string, unknown>) => JsPDFDoc };
   }
 }
+
+function mapPriority(kind: 'a11y' | 'eco', r: RuleResult): string {
+  if (kind === 'eco') {
+    return r.severity === 'critique' ? 'P1' : r.severity === 'majeur' ? 'P2' : 'P3';
+  }
+  return r.level === 'A' ? 'P1' : r.level === 'AA' ? 'P2' : 'P3';
+}
+
+function splitAdvice(advice: string | undefined): string[] {
+  if (!advice) return ['Corriger la non-conformité selon le référentiel'];
+  const parts = advice.split(/(?<=\.)\s+|;\s*/).map((s) => s.trim()).filter(Boolean);
+  return parts.length > 1 ? parts : [advice.trim()];
+}
+
+function groupByTheme(
+  entries: AggregatedEntry[],
+  kind: 'a11y' | 'eco',
+  referential: Referential,
+): Map<string, AggregatedEntry[]> {
+  const map = new Map<string, AggregatedEntry[]>();
+  for (const entry of entries) {
+    const t = themeKeyOf(kind, entry.rule, referential);
+    if (!map.has(t)) map.set(t, []);
+    map.get(t)!.push(entry);
+  }
+  return map;
+}
+
+function refLabelOf(kind: 'a11y' | 'eco', r: RuleResult, referential: Referential): string {
+  if (kind !== 'a11y') return `RGESN ${r.critere || ''}`;
+  if (referential === 'wcag') {
+    return `WCAG ${RGAA_TO_WCAG[r.rgaa || '']?.criterion || r.rgaa || ''}`;
+  }
+  return `RGAA ${r.rgaa || ''}`;
+}
+
+function buildNcUserStory(kind: 'a11y' | 'eco', entry: AggregatedEntry, referential: Referential): string {
+  const { rule: r, totalCount, byPage } = entry;
+  const refLabel = refLabelOf(kind, r, referential);
+  const theme = kind === 'a11y' ? (r.themeLabel || '') : (r.thematique || '');
+  const priority = mapPriority(kind, r);
+  const ncPages = byPage.filter((p) => p.status === 'NC');
+  const pageList = ncPages.map((p) => p.url).join(', ') || '_aucune page identifiée_';
+  const titleClause = r.title
+    ? r.title.charAt(0).toLowerCase() + r.title.slice(1)
+    : 'cette non-conformité soit corrigée';
+
+  let us = `#### [${theme}] ${refLabel} — ${r.title || 'Règle sans titre'} \`${priority}\`\n\n`;
+  us += `**En tant qu'utilisateur**, je souhaite que **${titleClause}** afin d'accéder au contenu sans obstacle.\n\n`;
+
+  us += `**Critères d'acceptation :**\n`;
+  for (const item of splitAdvice(r.advice)) {
+    us += `- [ ] ${item}\n`;
+  }
+  us += `- [ ] Aucune occurrence de ce type de NC sur les pages auditées\n`;
+  us += `- [ ] Tests validés sur : ${pageList}\n\n`;
+
+  us += `**Contexte technique :**\n`;
+  us += `- Référentiel : ${refLabel}\n`;
+  us += kind === 'eco'
+    ? `- Sévérité : ${r.severity || 'non définie'}\n`
+    : `- Niveau WCAG : ${r.level || '?'}\n`;
+  us += `- Occurrences : ${totalCount} sur ${ncPages.length} page(s)\n`;
+
+  const bestMeasure = byPage.find((p) => p.measure && p.measure !== 'Non testable automatiquement')?.measure || r.measure || '';
+  if (bestMeasure) us += `- Constat : ${bestMeasure}\n`;
+
+  const allDetails = byPage.flatMap((p) => p.details || []).slice(0, 4);
+  if (allDetails.length) {
+    for (const d of allDetails) us += `- ${d.label} : ${d.value}\n`;
+  }
+
+  const samplesWithCode = ncPages
+    .flatMap((p) => (p.samples || []).map((s) => ({ page: p.url, code: s.outer || s.selector })))
+    .filter((s) => s.code && s.code !== '?')
+    .slice(0, 3);
+  if (samplesWithCode.length) {
+    us += `\n**Éléments à corriger :**\n`;
+    for (const s of samplesWithCode) {
+      const isHtml = s.code.startsWith('<');
+      us += `\n*Page :* ${s.page}\n`;
+      us += isHtml ? `\`\`\`html\n${s.code}\n\`\`\`\n` : `\`${s.code}\`\n`;
+    }
+  }
+
+  us += `\n---\n\n`;
+  return us;
+}
+
+
 
 let _jsPdfLoadPromise: Promise<void> | null = null;
 
@@ -538,5 +628,49 @@ export function useExport() {
     URL.revokeObjectURL(url);
   }, []);
 
-  return { exportCsv, exportPdf, exportAi };
+  const exportUserStories = useCallback(() => {
+    const { pagesResults, aggregated, mode, activeThemes, referential } = auditStore.getState();
+    if (!aggregated || !pagesResults.length) return;
+
+    const domain = pagesResults[0] ? new URL(pagesResults[0].meta.url).hostname : 'audit';
+    const date = new Date().toLocaleDateString('fr-FR');
+
+    let md = `# User Stories — Corrections NC\n`;
+    md += `*Site : ${domain} · Généré le ${date}*\n\n`;
+    md += `> Une User Story par non-conformité détectée. À importer dans Jira, Linear, Notion, etc.\n\n---\n\n`;
+
+    const renderKind = (kind: 'a11y' | 'eco', sectionLabel: string) => {
+      const map = aggregated.byRule[kind];
+      if (!map?.size || (mode !== kind && mode !== 'both')) return '';
+
+      const entries = [...map.values()].filter((e) => {
+        if (e.aggregateStatus !== 'NC') return false;
+        if (activeThemes.size && !activeThemes.has(themeKeyOf(kind, e.rule, referential))) return false;
+        return true;
+      });
+      if (!entries.length) return '';
+      sortEntries(entries);
+
+      const byTheme = groupByTheme(entries, kind, referential);
+      let section = `## ${sectionLabel} (${entries.length} US)\n\n`;
+      for (const [theme, themeEntries] of byTheme) {
+        section += `### ${theme}\n\n`;
+        for (const entry of themeEntries) section += buildNcUserStory(kind, entry, referential);
+      }
+      return section;
+    };
+
+    if (mode === 'a11y' || mode === 'both') md += renderKind('a11y', 'Accessibilité');
+    if (mode === 'eco'  || mode === 'both') md += renderKind('eco',  'Éco-conception');
+
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `user-stories-${domain}-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  return { exportCsv, exportPdf, exportAi, exportUserStories };
 }

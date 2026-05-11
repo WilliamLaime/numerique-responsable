@@ -107,6 +107,116 @@ test.describe('Moteur audit.js — page conforme', () => {
   });
 });
 
+test.describe('Thème 3 — Couleurs', () => {
+  test('col-3.2-contrast-text NC si texte à contraste insuffisant', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'couleurs-violations.html', 'a11y');
+    expect(a11y['col-3.2-contrast-text'].status).toBe('NC');
+    expect(a11y['col-3.2-contrast-text'].count).toBeGreaterThanOrEqual(2);
+  });
+
+  test('col-3.2-contrast-text C sur page propre', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-clean.html', 'a11y');
+    expect(['C', 'NA', 'NT']).toContain(a11y['col-3.2-contrast-text'].status);
+  });
+});
+
+test.describe('Thème 5 — Tableaux', () => {
+  test('tab-5.6-headers NC si tableau sans <th>', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'tableaux-violations.html', 'a11y');
+    expect(a11y['tab-5.6-headers'].status).toBe('NC');
+  });
+
+  test('tab-5.4-data-identified NC si tableau sans caption ni aria-label', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'tableaux-violations.html', 'a11y');
+    expect(a11y['tab-5.4-data-identified'].status).toBe('NC');
+  });
+
+  test('tab-5.8-layout NC si table role=presentation avec <th>', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'tableaux-violations.html', 'a11y');
+    expect(a11y['tab-5.8-layout'].status).toBe('NC');
+  });
+
+  test('tab-5.6-headers C sur page propre (pas de tableau)', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-clean.html', 'a11y');
+    expect(['C', 'NA']).toContain(a11y['tab-5.6-headers'].status);
+  });
+});
+
+test.describe('Thème 10 — Présentation (focus)', () => {
+  test('pre-10.7-focus-visible NC si :focus outline supprimé sans :focus-visible', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-violations.html', 'a11y');
+    expect(a11y['pre-10.7-focus-visible'].status).toBe('NC');
+  });
+
+  test('pre-10.7-focus-visible C si :focus-visible correctement défini', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-clean.html', 'a11y');
+    expect(['C', 'NT']).toContain(a11y['pre-10.7-focus-visible'].status);
+  });
+});
+
+test.describe('Thème 12 — Navigation (skip link, tab order)', () => {
+  test('nav-12.7-skip-link NC si aucun lien d\'évitement', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-violations.html', 'a11y');
+    expect(a11y['nav-12.7-skip-link'].status).toBe('NC');
+  });
+
+  test('nav-12.7-skip-link C si lien d\'évitement présent', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-clean.html', 'a11y');
+    expect(a11y['nav-12.7-skip-link'].status).toBe('C');
+  });
+
+  test('nav-12.8-tab-order C si aucun tabindex positif', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-clean.html', 'a11y');
+    expect(a11y['nav-12.8-tab-order'].status).toBe('C');
+  });
+});
+
+test.describe('Thème 8 — Éléments obligatoires (obl-8.9)', () => {
+  test('obl-8.9-strict NC si éléments HTML4 dépréciés présents', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'deprecated-elements.html', 'a11y');
+    expect(a11y['obl-8.9-strict'].status).toBe('NC');
+    expect(a11y['obl-8.9-strict'].count).toBeGreaterThanOrEqual(3);
+  });
+
+  test('obl-8.9-strict C sur page propre sans éléments dépréciés', async ({ page }) => {
+    const { a11y } = await runAudit(page, 'a11y-clean.html', 'a11y');
+    expect(a11y['obl-8.9-strict'].status).toBe('C');
+  });
+});
+
+test.describe('Éco — règles automatisables', () => {
+  test('eco-spec-viewport NC si user-scalable=no', async ({ page }) => {
+    const { eco } = await runAudit(page, 'eco-violations.html', 'eco');
+    expect(eco['eco-spec-viewport'].status).toBe('NC');
+  });
+
+  test('eco-spec-viewport C sur page propre', async ({ page }) => {
+    const { eco } = await runAudit(page, 'a11y-clean.html', 'eco');
+    expect(eco['eco-spec-viewport'].status).toBe('C');
+  });
+
+  test('eco-ux-video-autoplay NC si <video autoplay> sans muted', async ({ page }) => {
+    const { eco } = await runAudit(page, 'eco-violations.html', 'eco');
+    expect(eco['eco-ux-video-autoplay'].status).toBe('NC');
+  });
+
+  test('eco-front-render-blocking NC si script synchrone en <head>', async ({ page }) => {
+    const { eco } = await runAudit(page, 'eco-violations.html', 'eco');
+    expect(eco['eco-front-render-blocking'].status).toBe('NC');
+  });
+
+  test('eco-front-lazy NC si images hors viewport sans loading="lazy"', async ({ page }) => {
+    const { eco } = await runAudit(page, 'eco-violations.html', 'eco');
+    expect(eco['eco-front-lazy'].status).toBe('NC');
+    expect(eco['eco-front-lazy'].count).toBeGreaterThanOrEqual(4);
+  });
+
+  test('eco-front-render-blocking C sur page propre sans scripts bloquants', async ({ page }) => {
+    const { eco } = await runAudit(page, 'a11y-clean.html', 'eco');
+    expect(eco['eco-front-render-blocking'].status).toBe('C');
+  });
+});
+
 test.describe('Moteur audit.js — structure du résultat', () => {
   test('mode=both renvoie a11y et eco non vides', async ({ page }) => {
     const { raw } = await runAudit(page, 'a11y-clean.html', 'both');
@@ -127,7 +237,7 @@ test.describe('Moteur audit.js — structure du résultat', () => {
       expect(validStatuses.has(entry.status)).toBe(true);
       expect(typeof entry.id).toBe('string');
       expect(typeof entry.title).toBe('string');
-      expect(typeof entry.theme).toBe('number');
+      expect(typeof entry.themeLabel).toBe('string');
     }
   });
 

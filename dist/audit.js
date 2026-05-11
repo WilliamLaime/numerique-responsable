@@ -787,7 +787,16 @@ const RULES_OBLIGATOIRES = [
       return { status: 'NT', count: 0, measure: `${els.length} passage(s) avec attribut lang valide — vérifiez que tous les passages multilingues sont couverts`, manualPrompt: "Vérifiez que chaque passage dans une langue différente de la langue principale est balisé avec l'attribut lang approprié." };
     }},
   NT('obl-8.8-dir', '8.8', 8, "Dans chaque page web, le code de langue de chaque changement de langue est-il valide et pertinent ?", "Vérifiez les codes de langue sur les passages multilingues."),
-  NT('obl-8.9-strict', '8.9', 8, "Dans chaque page web, les balises ne doivent pas être utilisées uniquement à des fins de présentation.", "Vérifiez qu'aucun <table>, <h1>, <blockquote> n'est utilisé pour la mise en forme."),
+  { id: 'obl-8.9-strict', num: '8.9', theme: 8, level: 'A',
+    title: "Dans chaque page web, les balises ne doivent pas être utilisées uniquement à des fins de présentation.",
+    advice: "Remplacez <center>, <font>, <marquee> et <blink> par des équivalents CSS. Ces éléments HTML4 n'ont aucun sens sémantique.",
+    run: () => {
+      const deprecated = [...document.querySelectorAll('center, font, marquee, blink')].filter(isVisible);
+      if (!deprecated.length) return { status: 'C', count: 0, measure: 'Aucun élément purement présentationnel détecté' };
+      return { status: 'NC', count: deprecated.length,
+        measure: `${deprecated.length} élément(s) HTML4 purement présentationnel(s) (<center>, <font>, <marquee>, <blink>)`,
+        samples: sampleElements(deprecated) };
+    }},
   NT('obl-8.10-dir', '8.10', 8, "Dans chaque page web, les changements du sens de lecture sont-ils signalés ?", "Vérifiez les attributs dir sur les passages RTL/LTR."),
 ];
 

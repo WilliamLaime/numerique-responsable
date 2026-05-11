@@ -6,6 +6,7 @@ import SelectScreen from './components/screens/SelectScreen';
 import LoadingScreen from './components/screens/LoadingScreen';
 import ResultsScreen from './components/screens/ResultsScreen';
 import ErrorScreen from './components/screens/ErrorScreen';
+import CompareScreen from './components/screens/CompareScreen';
 import ContrastChecker from './components/ContrastChecker';
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
         <LoadingScreen active={screen === 'loading'} />
         <ResultsScreen active={screen === 'results'} startAudit={startAudit} />
         <ErrorScreen active={screen === 'error'} />
+        <CompareScreen active={screen === 'compare'} />
         <AppFooter />
       </main>
       <ContrastChecker />

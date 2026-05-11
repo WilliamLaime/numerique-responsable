@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="fr">
+<!--
+  Fixture thème 8 — Éléments obligatoires
+  Violations ciblées :
+    obl-8.9-strict : éléments HTML4 purement présentationnels → NC
+-->
+<head>
+  <meta charset="UTF-8">
+  <title>Éléments dépréciés — violations</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <h1>Test éléments dépréciés</h1>
+
+  <!-- obl-8.9 : <center> → toujours NC -->
+  <center id="deprecated-center">Texte centré avec &lt;center&gt;</center>
+
+  <!-- obl-8.9 : <font> → toujours NC -->
+  <font id="deprecated-font" color="red" size="4">Texte avec &lt;font&gt;</font>
+
+  <!-- obl-8.9 : <marquee> → toujours NC -->
+  <marquee id="deprecated-marquee">Texte défilant avec &lt;marquee&gt;</marquee>
+
+  <!-- Éléments sémantiques conformes (contrôle) -->
+  <p><strong>Texte important</strong> et <em>terme technique</em>.</p>
+  <b>Mot-clé en gras sémantique</b>
+</body>
+</html>
