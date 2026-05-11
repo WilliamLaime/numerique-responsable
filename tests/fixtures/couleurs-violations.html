@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<!--
+  Fixture thème 3 — Couleurs
+  Violations ciblées :
+    col-3.2-contrast-text : texte avec contraste insuffisant (< 4.5:1)
+-->
+<head>
+  <meta charset="UTF-8">
+  <title>Couleurs — violations de contraste</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; background: #ffffff; }
+  </style>
+</head>
+<body>
+  <h1 style="color:#111;background:#fff;">Titre accessible (OK)</h1>
+
+  <!-- col-3.2-contrast-text : #aaa sur #fff → ratio ~2.3:1, texte normal → NC -->
+  <p id="low-contrast-1" style="color:#aaaaaa;background:#ffffff;">
+    Texte gris clair sur fond blanc — contraste insuffisant.
+  </p>
+
+  <!-- col-3.2-contrast-text : #767676 sur #fff → ratio ~4.48:1 (juste en dessous de 4.5) → NC -->
+  <p id="low-contrast-2" style="color:#767676;background:#ffffff;">
+    Texte gris moyen sur fond blanc — contraste légèrement insuffisant.
+  </p>
+
+  <!-- lien avec faible contraste -->
+  <a href="/x" id="low-contrast-link" style="color:#aaaaaa;background:#ffffff;">
+    Lien peu contrasté
+  </a>
+
+  <!-- Éléments conformes pour ne pas fausser le compte -->
+  <p id="ok-contrast" style="color:#111111;background:#ffffff;">Texte noir — conforme.</p>
+</body>
+</html>

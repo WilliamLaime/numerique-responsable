@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<!--
+  Fixture thème 5 — Tableaux
+  Violations ciblées :
+    tab-5.4-data-identified : tableau sans caption ni aria-label
+    tab-5.6-headers         : tableau sans <th>
+    tab-5.8-layout          : tableau role=presentation avec <th>
+-->
+<head>
+  <meta charset="UTF-8">
+  <title>Tableaux — violations</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <h1>Test tableaux</h1>
+
+  <!-- tab-5.4-data-identified & tab-5.6-headers : table sans caption ni th → NC sur les deux -->
+  <table id="no-header-no-caption">
+    <tbody>
+      <tr><td>Nom</td><td>Prénom</td></tr>
+      <tr><td>Dupont</td><td>Marie</td></tr>
+    </tbody>
+  </table>
+
+  <!-- tab-5.6-headers uniquement : table sans <th> mais avec caption → tab-5.4 C, tab-5.6 NC -->
+  <table id="no-th-with-caption">
+    <caption>Résultats trimestriels</caption>
+    <tbody>
+      <tr><td>Q1</td><td>100 €</td></tr>
+      <tr><td>Q2</td><td>200 €</td></tr>
+    </tbody>
+  </table>
+
+  <!-- tab-5.8-layout : table role=presentation avec <th> → NC -->
+  <table id="layout-with-th" role="presentation">
+    <tr><th>Mauvais usage</th><td>valeur</td></tr>
+  </table>
+
+  <!-- Tableau conforme (contrôle) : présence de th et caption -->
+  <table id="compliant-table" aria-label="Tableau conforme">
+    <thead>
+      <tr><th scope="col">Colonne A</th><th scope="col">Colonne B</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>A1</td><td>B1</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>

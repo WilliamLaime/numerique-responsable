@@ -99,7 +99,7 @@ async function auditTab(tabId: number, mode: AuditMode): Promise<PageResult | nu
 async function fetchSitemap(url: string, depth: number, urls: Set<string>, origin: string): Promise<void> {
   if (depth > 3) return;
   try {
-    const res = await fetch(url, { credentials: 'omit' });
+    const res = await fetch(url, { credentials: 'omit', signal: AbortSignal.timeout(10_000) });
     if (!res.ok) return;
     const doc = new DOMParser().parseFromString(await res.text(), 'text/xml');
     for (const node of doc.querySelectorAll('loc')) {
@@ -122,7 +122,7 @@ async function discoverUrls(startUrl: string, limit: number | 'all'): Promise<st
 
   // Lire robots.txt pour trouver les sitemaps déclarés
   try {
-    const res = await fetch(origin + '/robots.txt', { credentials: 'omit' });
+    const res = await fetch(origin + '/robots.txt', { credentials: 'omit', signal: AbortSignal.timeout(8_000) });
     if (res.ok) {
       const text = await res.text();
       const sitemapLines = text.match(/^Sitemap:\s*(.+)$/gim) || [];
@@ -134,15 +134,15 @@ async function discoverUrls(startUrl: string, limit: number | 'all'): Promise<st
     }
   } catch {}
 
-  // Fallback sitemap.xml si aucune URL trouvée via robots.txt
-  if (urls.size <= 1) {
-    await fetchSitemap(origin + '/sitemap.xml', 0, urls, origin);
-    if (urls.size > 1) auditStore.getState().setLoadingText(`Sitemap : ${urls.size} URL(s) trouvée(s)…`);
-  }
+  // Toujours tenter /sitemap.xml comme source complémentaire
+  // (le Set déduplique automatiquement les URLs déjà découvertes via robots.txt)
+  await fetchSitemap(origin + '/sitemap.xml', 0, urls, origin);
+  if (urls.size > 1) auditStore.getState().setLoadingText(`Sitemap : ${urls.size} URL(s) trouvée(s)…`);
 
-  // Compléter avec les liens de la page courante
+  // Compléter avec les liens de la page courante (après stabilisation)
   try {
     const tab = await getTargetTab();
+    await ensurePageReady(tab!.id!);
     const [res] = await chrome.scripting.executeScript({
       target: { tabId: tab!.id! },
       func: () =>

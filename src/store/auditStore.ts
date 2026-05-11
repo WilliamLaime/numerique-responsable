@@ -10,7 +10,7 @@ import type {
 } from '../types/audit.js';
 import { aggregateResults } from '../lib/aggregation.js';
 
-type Screen = 'select' | 'loading' | 'results' | 'error';
+type Screen = 'select' | 'loading' | 'results' | 'error' | 'compare';
 type View = 'theme' | 'rule' | 'page';
 type ActiveTab = 'a11y' | 'eco';
 
@@ -61,6 +61,9 @@ interface AuditState {
 
   // Validations manuelles des critères NT
   manualOverrides: Record<string, 'C' | 'NC'>;
+
+  // Comparaison de deux audits
+  compareAuditIds: [string, string] | null;
 }
 
 interface AuditActions {
@@ -124,6 +127,10 @@ interface AuditActions {
   // Validations manuelles des critères NT
   setManualOverride: (ruleId: string, status: 'C' | 'NC') => void;
   clearManualOverride: (ruleId: string) => void;
+
+  // Comparaison de deux audits
+  startCompare: (id1: string, id2: string) => void;
+  clearCompare: () => void;
 }
 
 const DEFAULT_ACTIVE_STATUSES: StatusCode[] = ['NC', 'NT'];
@@ -162,6 +169,7 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
   referential: 'rgaa',
   customUrls: [],
   manualOverrides: {},
+  compareAuditIds: null,
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -277,6 +285,9 @@ export const auditStore = createStore<AuditState & AuditActions>((set, get) => (
       delete next[ruleId];
       return { manualOverrides: next };
     }),
+
+  startCompare: (id1, id2) => set({ compareAuditIds: [id1, id2], screen: 'compare' }),
+  clearCompare: () => set({ compareAuditIds: null, screen: 'select', selectTab: 'saved' }),
 
   loadSavedAudit: (entry) => {
     const pagesResults = entry.pagesResults;

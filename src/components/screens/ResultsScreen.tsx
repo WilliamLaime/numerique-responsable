@@ -51,6 +51,7 @@ function ruleMeta(kind: string, r: RuleResult, referential: Referential = 'rgaa'
   return `RGAA ${r.rgaa || ''} · Niveau ${r.level || ''} · ${r.themeLabel || ''}`;
 }
 
+
 interface IssueCardProps {
   entry: AggregatedEntry;
   kind: string;
@@ -198,10 +199,14 @@ function IssueCard({ entry, kind, pageInfo, referential = 'rgaa', override, onSe
         <span className="issue-toggle">{expanded ? '▼' : '▶'}</span>
       </div>
       <div className="issue-body">
-        {r.advice && <div className="issue-advice">💡 {r.advice}</div>}
-        {manualPrompt && rawStatus === 'NT' && !pageInfo && (
+        {r.advice && rawStatus !== 'NT' && <div className="issue-advice">💡 {r.advice}</div>}
+        {rawStatus === 'NT' && !pageInfo && (
           <div className="issue-manual">
-            <span>❓ {manualPrompt}</span>
+            <div className="nt-zone">
+              <span className="nt-zone-label">🎯 Zone à tester</span>
+              {manualPrompt && <p className="nt-zone-text">{manualPrompt}</p>}
+              {r.advice && <p className="nt-zone-desc">{r.advice}</p>}
+            </div>
             {override ? (
               <div className="nt-validated">
                 <span className={`nt-validated-badge status-${override}`}>
@@ -433,7 +438,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
 
   const manualOverrides = useAuditStore((s) => s.manualOverrides);
 
-  const { exportCsv, exportPdf, exportAi } = useExport();
+  const { exportPdf, exportAi, exportUserStories } = useExport();
   const { saveAudit } = useStorage();
   const { nrPrompt } = useModal();
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -584,13 +589,13 @@ export default function ResultsScreen({ active, startAudit }: Props) {
             <span className="btn-label">Sauvegarder</span>
           </button>
           <button
-            id="export-csv"
+            id="export-us"
             className="action-btn"
-            title="Exporter en CSV"
-            onClick={exportCsv}
+            title="Exporter les NC en User Stories Markdown"
+            onClick={exportUserStories}
           >
-            <span className="btn-icon" aria-hidden="true">📄</span>
-            <span className="btn-label">CSV</span>
+            <span className="btn-icon" aria-hidden="true">📋</span>
+            <span className="btn-label">User Stories</span>
           </button>
           <button
             id="export-pdf"

@@ -95,3 +95,72 @@ describe('themeKeyOf', () => {
     expect(themeKeyOf('eco', rule)).toBe('Frontend');
   });
 });
+
+describe('computeScore — cas limites', () => {
+  it('arrondit correctement (2/3 = 66.7 → 67)', () => {
+    const map = makeRuleMap([{ status: 'C' }, { status: 'C' }, { status: 'NC' }]);
+    expect(computeScore(map)).toBe(67);
+  });
+
+  it('score 100 si uniquement NT', () => {
+    expect(computeScore(makeRuleMap([{ status: 'NT' }, { status: 'NT' }]))).toBe(100);
+  });
+
+  it('score 100 si carte vide', () => {
+    expect(computeScore(new Map())).toBe(100);
+  });
+
+  it('1 C / 99 NC → score 1', () => {
+    const entries: Array<{ status: 'C' | 'NC' | 'NA' | 'NT' }> = [
+      { status: 'C' },
+      ...Array.from({ length: 99 }, () => ({ status: 'NC' as const })),
+    ];
+    expect(computeScore(makeRuleMap(entries))).toBe(1);
+  });
+
+  it('le score est entre 0 et 100 quels que soient les statuts', () => {
+    const mixed = makeRuleMap([
+      { status: 'C' }, { status: 'NC' }, { status: 'NA' }, { status: 'NT' },
+    ]);
+    const score = computeScore(mixed);
+    expect(score).toBeGreaterThanOrEqual(0);
+    expect(score).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('aggregateResults — multi-pages', () => {
+  it('retourne un score de 100 si toutes les règles sont NA', () => {
+    const pages: PageResult[] = [
+      { a11y: [{ id: 'r1', status: 'NA', count: 0, title: '', themeLabel: 'Images', rgaa: '1.1', level: 'A' }], meta: { url: 'https://a.com/' } },
+    ];
+    const result = aggregateResults(pages, 'a11y');
+    expect(result.scores.a11y).toBe(100);
+  });
+
+  it('fusionne correctement 3 pages avec le pire statut', () => {
+    const rule = { id: 'r2', status: 'C' as const, count: 0, title: '', themeLabel: 'Liens', rgaa: '6.1', level: 'A' };
+    const pages: PageResult[] = [
+      { a11y: [{ ...rule, status: 'C', count: 0 }], meta: { url: 'https://a.com/1' } },
+      { a11y: [{ ...rule, status: 'NA', count: 0 }], meta: { url: 'https://a.com/2' } },
+      { a11y: [{ ...rule, status: 'NC', count: 5 }], meta: { url: 'https://a.com/3' } },
+    ];
+    const result = aggregateResults(pages, 'a11y');
+    expect(result.byRule.a11y.get('r2')?.aggregateStatus).toBe('NC');
+    expect(result.byRule.a11y.get('r2')?.totalCount).toBe(5);
+    expect(result.byRule.a11y.get('r2')?.byPage).toHaveLength(3);
+  });
+
+  it('countStatuses ne compte que les règles du mode demandé', () => {
+    const pages: PageResult[] = [
+      {
+        a11y: [{ id: 'a1', status: 'NC', count: 1, title: '', themeLabel: 'Images', rgaa: '1.1', level: 'A' }],
+        eco:  [{ id: 'e1', status: 'C',  count: 0, title: '', thematique: 'Frontend' }],
+        meta: { url: 'https://a.com/' },
+      },
+    ];
+    const resA = aggregateResults(pages, 'a11y');
+    const resE = aggregateResults(pages, 'eco');
+    expect(resA.statusCounts.a11y).toEqual({ C: 0, NC: 1, NA: 0, NT: 0 });
+    expect(resE.statusCounts.eco).toEqual({ C: 1, NC: 0, NA: 0, NT: 0 });
+  });
+});

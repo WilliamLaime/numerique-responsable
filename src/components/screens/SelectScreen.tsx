@@ -97,8 +97,10 @@ export default function SelectScreen({ active, startAudit }: Props) {
   const setPageLimit = useAuditStore((s) => s.setPageLimit);
   const referential = useAuditStore((s) => s.referential);
   const setReferential = useAuditStore((s) => s.setReferential);
-  const savedAudits = useAuditStore((s) => s.savedAudits);
+  const savedAudits    = useAuditStore((s) => s.savedAudits);
   const loadSavedAudit = useAuditStore((s) => s.loadSavedAudit);
+  const startCompare   = useAuditStore((s) => s.startCompare);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const { concurrency, settleDelay, updateConcurrency, updateSettleDelay } = useSettings();
   const { deleteAudit, renameAudit } = useStorage();
@@ -114,7 +116,16 @@ export default function SelectScreen({ active, startAudit }: Props) {
 
   const handleDelete = async (entry: SavedAuditEntry) => {
     if (!(await nrConfirm(`Supprimer l'audit "${entry.name}" ?`))) return;
+    setSelectedIds((ids) => ids.filter((id) => id !== entry.id));
     await deleteAudit(entry.id);
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= 2) return [prev[1], id];
+      return [...prev, id];
+    });
   };
 
   return (
@@ -328,6 +339,14 @@ export default function SelectScreen({ active, startAudit }: Props) {
             </p>
           </div>
         )}
+        {selectedIds.length === 2 && (
+          <button
+            className="compare-trigger-btn"
+            onClick={() => startCompare(selectedIds[0], selectedIds[1])}
+          >
+            ⚖ Comparer ces 2 audits
+          </button>
+        )}
         <ul id="saved-audits-list" className="saved-list">
           {savedAudits.map((a) => {
             const modeLabel =
@@ -339,8 +358,17 @@ export default function SelectScreen({ active, startAudit }: Props) {
                 hour: '2-digit',
                 minute: '2-digit',
               });
+            const isSelected = selectedIds.includes(a.id);
             return (
-              <li key={a.id} className="saved-item" data-id={a.id}>
+              <li key={a.id} className={`saved-item${isSelected ? ' selected' : ''}`} data-id={a.id}>
+                <input
+                  type="checkbox"
+                  className="saved-item-checkbox"
+                  checked={isSelected}
+                  aria-label={`Sélectionner "${a.name}" pour comparaison`}
+                  onChange={() => toggleSelect(a.id)}
+                  onClick={(e) => e.stopPropagation()}
+                />
                 <div
                   className="saved-item-main"
                   data-id={a.id}
