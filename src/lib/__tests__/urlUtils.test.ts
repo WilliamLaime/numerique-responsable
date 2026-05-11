@@ -41,6 +41,17 @@ describe('addIfSameOrigin', () => {
     expect(set.size).toBe(0);
   });
 
+  it('ignore les fichiers XML (sitemaps imbriqués)', () => {
+    const set = new Set<string>();
+    addIfSameOrigin(set, 'https://example.com/sitemap-sub.xml', origin);
+    expect(set.size).toBe(0);
+  });
+
+  it('normalisation URL — slash final ignoré à la comparaison', () => {
+    // P1-7 : normalizeUrl doit rendre deux URL avec/sans slash identiques
+    expect(normalizeUrl('https://example.com/page/')).toBe(normalizeUrl('https://example.com/page'));
+  });
+
   it('ignore les protocoles non http(s)', () => {
     const set = new Set<string>();
     addIfSameOrigin(set, 'ftp://example.com/page', origin);

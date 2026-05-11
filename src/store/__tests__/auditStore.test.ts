@@ -120,9 +120,9 @@ describe('filtres', () => {
 
   it('toggleStatus retire un statut present', () => {
     // NC est present par defaut. Le retirer.
-    // Le set devient vide → restaure C+NC+NA.
+    // Le set devient vide → restaure C+NC+NT+NA.
     state().toggleStatus('NC'); // retire NC → vide → restaure tout
-    expect(state().activeStatuses.size).toBe(3);
+    expect(state().activeStatuses.size).toBe(4);
   });
 
   it('toggleStatus restaure tout si le set devient vide (multi)', () => {
@@ -130,7 +130,7 @@ describe('filtres', () => {
     state().toggleStatus('C');      // ajoute C → NC+C
     state().toggleStatus('NC');     // retire NC → C seul
     state().toggleStatus('C');      // retire C → vide → restaure tout
-    expect(state().activeStatuses.size).toBe(3);
+    expect(state().activeStatuses.size).toBe(4);
   });
 
   it('toggleTheme ajoute et retire un theme', () => {

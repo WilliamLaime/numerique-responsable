@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-const AUDIT_SRC = fs.readFileSync(path.join(ROOT, 'audit.js'), 'utf8');
+const AUDIT_SRC = fs.readFileSync(path.join(ROOT, 'public', 'audit.js'), 'utf8');
 
 /**
  * Charge audit.js dans la page puis exécute __nrAudit(mode).
@@ -122,7 +122,7 @@ test.describe('Moteur audit.js — structure du résultat', () => {
 
   test('chaque entrée a11y a un statut valide', async ({ page }) => {
     const { raw } = await runAudit(page, 'a11y-clean.html', 'a11y');
-    const validStatuses = new Set(['C', 'NC', 'NA']);
+    const validStatuses = new Set(['C', 'NC', 'NA', 'NT']);
     for (const entry of raw.a11y) {
       expect(validStatuses.has(entry.status)).toBe(true);
       expect(typeof entry.id).toBe('string');
@@ -131,15 +131,9 @@ test.describe('Moteur audit.js — structure du résultat', () => {
     }
   });
 
-  test('aucune règle ne retourne NT (tout est automatisé)', async ({ page }) => {
-    for (const fixture of ['a11y-clean.html', 'a11y-violations.html']) {
-      const { raw } = await runAudit(page, fixture, 'both');
-      const nt = [...raw.a11y, ...raw.eco].filter(r => r.status === 'NT');
-      if (nt.length) {
-        console.log(`NT détectés sur ${fixture} :\n` +
-          nt.map(r => `  - ${r.id} : ${r.title}`).join('\n'));
-      }
-      expect(nt, `Aucune règle ne doit retourner NT sur ${fixture}`).toHaveLength(0);
-    }
+  test('les règles manuelles retournent bien NT', async ({ page }) => {
+    const { raw } = await runAudit(page, 'a11y-clean.html', 'both');
+    const nt = [...raw.a11y, ...raw.eco].filter(r => r.status === 'NT');
+    expect(nt.length).toBeGreaterThan(0);
   });
 });

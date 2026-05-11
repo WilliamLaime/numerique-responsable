@@ -1,8 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Numérique Responsable",
+  "short_name": "Num. Responsable",
   "version": "1.0.0",
-  "description": "Audit d'accessibilité (RGAA) et d'écoconception (RGESN) de la page courante.",
+  "version_name": "1.0.0",
+  "description": "Audit d'accessibilité (RGAA 4.1.2) et d'écoconception (RGESN 2024) de la page courante. Crawl multi-pages, export PDF/CSV.",
+  "author": "William Laime",
+  "homepage_url": "https://github.com/WilliamLaime/numerique-responsable",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -24,6 +28,12 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["activeTab", "scripting", "sidePanel", "tabs", "storage", "unlimitedStorage"],
-  "host_permissions": ["<all_urls>"]
+  "permissions": ["activeTab", "scripting", "sidePanel", "tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["timing-init.js"],
+    "run_at": "document_start",
+    "all_frames": false
+  }]
 }

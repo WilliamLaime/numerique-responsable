@@ -3,7 +3,7 @@ const TRACKING_PARAMS = [
   'fbclid', 'gclid',
 ];
 
-const BINARY_EXT_RE = /\.(pdf|zip|jpg|jpeg|png|gif|svg|webp|mp4|mp3|doc|docx|xls|xlsx)(\?|$)/i;
+const BINARY_EXT_RE = /\.(pdf|zip|jpg|jpeg|png|gif|svg|webp|mp4|mp3|doc|docx|xls|xlsx|xml|txt|json)(\?|$)/i;
 
 export function normalizeUrl(u: string): string {
   try {
