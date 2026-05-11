@@ -7,6 +7,16 @@ import type { AuditMode, PageResult } from '../types/audit';
 const MAX_PAGES_HARD_CAP = 500;
 const PAGES_CONFIRM_THRESHOLD = 100;
 
+async function getTargetTab(): Promise<chrome.tabs.Tab | undefined> {
+  const params = new URLSearchParams(location.search);
+  const targetTabId = params.get('targetTabId');
+  if (targetTabId) {
+    try { return await chrome.tabs.get(Number(targetTabId)); } catch {}
+  }
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
 function waitForTabLoad(
   tabId: number,
   { totalTimeout = 30000, settleDelay = 800 } = {},
@@ -65,7 +75,9 @@ async function ensurePageReady(tabId: number): Promise<void> {
 
 async function auditTab(tabId: number, mode: AuditMode): Promise<PageResult | null> {
   await ensurePageReady(tabId);
+  if (auditStore.getState().cancelled) return null;
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (auditStore.getState().cancelled) return null;
     try {
       await chrome.scripting.executeScript({ target: { tabId }, files: ['audit.js'] });
       const [res] = await chrome.scripting.executeScript({
@@ -78,9 +90,28 @@ async function auditTab(tabId: number, mode: AuditMode): Promise<PageResult | nu
     } catch (e) {
       console.warn('auditTab attempt', attempt, 'failed', e);
     }
+    if (auditStore.getState().cancelled) return null;
     await new Promise<void>((r) => setTimeout(r, 1000));
   }
   return null;
+}
+
+async function fetchSitemap(url: string, depth: number, urls: Set<string>, origin: string): Promise<void> {
+  if (depth > 3) return;
+  try {
+    const res = await fetch(url, { credentials: 'omit' });
+    if (!res.ok) return;
+    const doc = new DOMParser().parseFromString(await res.text(), 'text/xml');
+    for (const node of doc.querySelectorAll('loc')) {
+      const loc = node.textContent?.trim();
+      if (!loc) continue;
+      if (loc.endsWith('.xml')) {
+        await fetchSitemap(loc, depth + 1, urls, origin);
+      } else {
+        addIfSameOrigin(urls, loc, origin);
+      }
+    }
+  } catch {}
 }
 
 async function discoverUrls(startUrl: string, limit: number | 'all'): Promise<string[]> {
@@ -89,40 +120,38 @@ async function discoverUrls(startUrl: string, limit: number | 'all'): Promise<st
   const urls = new Set<string>([startNormalized]);
   const effectiveLimit = limit === 'all' ? MAX_PAGES_HARD_CAP : limit;
 
+  // Lire robots.txt pour trouver les sitemaps déclarés
   try {
-    const res = await fetch(origin + '/sitemap.xml', { credentials: 'omit' });
+    const res = await fetch(origin + '/robots.txt', { credentials: 'omit' });
     if (res.ok) {
       const text = await res.text();
-      const doc = new DOMParser().parseFromString(text, 'text/xml');
-      const locs = [...doc.querySelectorAll('loc')].map((n) => n.textContent!.trim());
-      for (const loc of locs) {
-        if (loc.endsWith('.xml')) {
-          try {
-            const sub = await fetch(loc, { credentials: 'omit' });
-            if (sub.ok) {
-              const subDoc = new DOMParser().parseFromString(await sub.text(), 'text/xml');
-              subDoc.querySelectorAll('loc').forEach((n) =>
-                addIfSameOrigin(urls, n.textContent!.trim(), origin),
-              );
-            }
-          } catch {}
-        } else {
-          addIfSameOrigin(urls, loc, origin);
-        }
+      const sitemapLines = text.match(/^Sitemap:\s*(.+)$/gim) || [];
+      for (const line of sitemapLines) {
+        const sitemapUrl = line.replace(/^Sitemap:\s*/i, '').trim();
+        await fetchSitemap(sitemapUrl, 0, urls, origin);
+        auditStore.getState().setLoadingText(`Sitemap : ${urls.size} URL(s) trouvée(s)…`);
       }
     }
   } catch {}
 
+  // Fallback sitemap.xml si aucune URL trouvée via robots.txt
+  if (urls.size <= 1) {
+    await fetchSitemap(origin + '/sitemap.xml', 0, urls, origin);
+    if (urls.size > 1) auditStore.getState().setLoadingText(`Sitemap : ${urls.size} URL(s) trouvée(s)…`);
+  }
+
+  // Compléter avec les liens de la page courante
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = await getTargetTab();
     const [res] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id! },
+      target: { tabId: tab!.id! },
       func: () =>
         [...document.querySelectorAll('a[href]')].map(
           (a) => (a as HTMLAnchorElement).href,
         ),
     });
     for (const href of (res?.result ?? [])) addIfSameOrigin(urls, href, origin);
+    auditStore.getState().setLoadingText(`Découverte : ${urls.size} URL(s) au total…`);
   } catch {}
 
   const all = [...urls];
@@ -137,6 +166,11 @@ export async function cancelRunningAudit(): Promise<void> {
   for (const tabId of st.currentCrawlTabs) {
     try { await chrome.tabs.remove(tabId); } catch {}
   }
+  // Deuxième passe pour attraper les onglets créés pendant l'annulation
+  await new Promise((r) => setTimeout(r, 500));
+  for (const tabId of auditStore.getState().currentCrawlTabs) {
+    try { await chrome.tabs.remove(tabId); } catch {}
+  }
   st.clearCrawlTabs();
 }
 
@@ -144,8 +178,8 @@ export async function jumpToElement(pageUrl: string, auditId: string): Promise<v
   const mode = auditStore.getState().mode;
   if (!mode) return;
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const tabId = tab.id!;
+    const tab = await getTargetTab();
+    const tabId = tab!.id!;
     let needsRemark = false;
 
     if (normalizeUrl(pageUrl) !== normalizeUrl(tab.url || '')) {
@@ -187,8 +221,8 @@ export async function jumpToElement(pageUrl: string, auditId: string): Promise<v
 
 export async function navigateToPage(url: string): Promise<void> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    await chrome.tabs.update(tab.id!, { url, active: true });
+    const tab = await getTargetTab();
+    await chrome.tabs.update(tab!.id!, { url, active: true });
   } catch (e) {
     console.error('navigateToPage failed', e);
   }
@@ -196,8 +230,8 @@ export async function navigateToPage(url: string): Promise<void> {
 
 export async function toggleTabOrder(): Promise<boolean> {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    const tabId = tab.id!;
+    const tab = await getTargetTab();
+    const tabId = tab!.id!;
     await chrome.scripting.executeScript({ target: { tabId }, files: ['taborder.js'] });
     const [res] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -221,7 +255,7 @@ export function useAuditRunner() {
       st.beginAudit(mode, scope, pageLimit, concurrency, settleDelay);
 
       try {
-        const [currentTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        const currentTab = await getTargetTab();
         if (
           !currentTab?.url ||
           /^(chrome|edge|about|chrome-extension|devtools):/.test(currentTab.url)
@@ -248,7 +282,7 @@ export function useAuditRunner() {
             auditStore.getState().setScreen('error', 'Aucune URL valide du même domaine trouvée.');
             return;
           }
-          urls = custom;
+          urls = custom.length > MAX_PAGES_HARD_CAP ? custom.slice(0, MAX_PAGES_HARD_CAP) : custom;
         } else {
           urls = await discoverUrls(currentTab.url, pageLimit);
         }
@@ -289,12 +323,16 @@ export function useAuditRunner() {
           let tabId: number | null = null;
           let createdTab = false;
           try {
-            if (index === 0 && url === currentTab.url) {
-              tabId = currentTab.id!;
+            if (index === 0 && normalizeUrl(url) === normalizeUrl(currentTab?.url || '')) {
+              tabId = currentTab!.id!;
             } else {
               const t = await chrome.tabs.create({ url, active: false });
               tabId = t.id!;
               createdTab = true;
+              if (auditStore.getState().cancelled) {
+                try { await chrome.tabs.remove(tabId); } catch {}
+                return;
+              }
               auditStore.getState().addCrawlTab(tabId!);
               await waitForTabLoad(tabId!, { settleDelay });
             }

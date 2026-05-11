@@ -665,7 +665,7 @@ export default function ResultsScreen({ active, startAudit }: Props) {
         )}
         {(mode === 'eco' || mode === 'both') && (
           <p className="legend-coverage">
-            Écoconception — <strong>{auditCoverage('eco')}%</strong> des critères testés lors de cet audit (101 critères)
+            Écoconception — <strong>{auditCoverage('eco')}%</strong> des critères testés lors de cet audit ({pagesResults[0]?.meta?.ecoTotal ?? 78} critères)
           </p>
         )}
       </div>
@@ -700,7 +700,11 @@ export default function ResultsScreen({ active, startAudit }: Props) {
               onClick={() => setActiveTab(k)}
             >
               {k === 'a11y' ? 'Accessibilité' : 'Écoconception'}
-              <span className="count">{aggregated.byRule[k].size}</span>
+              <span className="count">
+                {k === 'a11y'
+                  ? (pagesResults[0]?.meta?.rgaaTotal ?? 106)
+                  : aggregated.byRule[k].size}
+              </span>
             </button>
           ))}
       </div>

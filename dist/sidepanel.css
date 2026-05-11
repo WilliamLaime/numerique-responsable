@@ -1342,6 +1342,21 @@ body {
   text-overflow: ellipsis;
 }
 
+.url-nav-btn {
+  display: block;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.url-nav-btn:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
 /* ========== HEADER ACTIONS (save + export, dans results-header) ========== */
 .header-actions {
   display: inline-flex;

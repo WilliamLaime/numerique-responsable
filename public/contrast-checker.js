@@ -1,9 +1,26 @@
 (function () {
   'use strict';
 
+  let _nrCcCanvas;
+  const normalizeColor = (c) => {
+    if (!c || c === 'transparent') return 'rgba(0,0,0,0)';
+    try {
+      if (!_nrCcCanvas) _nrCcCanvas = document.createElement('canvas').getContext('2d');
+      _nrCcCanvas.fillStyle = '#000';
+      _nrCcCanvas.fillStyle = c;
+      return _nrCcCanvas.fillStyle;
+    } catch { return null; }
+  };
   const parseColor = (c) => {
-    if (!c || c === 'transparent') return [0, 0, 0, 0];
-    const m = c.match(/\d+(\.\d+)?/g);
+    const norm = normalizeColor(c);
+    if (!norm) return null;
+    if (norm === 'rgba(0,0,0,0)') return [0, 0, 0, 0];
+    if (norm.startsWith('#')) {
+      const hex = norm.slice(1);
+      return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16),
+              hex.length === 8 ? parseInt(hex.slice(6,8),16)/255 : 1];
+    }
+    const m = norm.match(/[\d.]+/g);
     if (!m) return null;
     return [+m[0], +m[1], +m[2], m[3] !== undefined ? +m[3] : 1];
   };
@@ -11,7 +28,7 @@
   const bgChain = (el) => {
     let cur = el;
     const stack = [];
-    while (cur && cur !== document.documentElement) {
+    while (cur) {
       const cs = getComputedStyle(cur);
       if (cs.backgroundImage && cs.backgroundImage !== 'none') return null;
       const c = parseColor(cs.backgroundColor);
@@ -19,6 +36,7 @@
         stack.push(c);
         if (c[3] === 1) break;
       }
+      if (cur === document.documentElement) break;
       cur = cur.parentElement;
     }
     let r = 255, g = 255, b = 255;

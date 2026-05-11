@@ -3,6 +3,7 @@ import { useAuditStore } from '../store/auditStore';
 import type { SavedAuditEntry } from '../types/audit';
 
 const STORAGE_KEY = 'nrSavedAudits';
+const MAX_SAVED_AUDITS = 30;
 
 async function _getSaved(): Promise<SavedAuditEntry[]> {
   try {
@@ -15,7 +16,17 @@ async function _getSaved(): Promise<SavedAuditEntry[]> {
 }
 
 async function _setSaved(list: SavedAuditEntry[]): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEY]: list });
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY]: list });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/quota/i.test(msg)) {
+      throw new Error(
+        "Quota de stockage atteint (10 Mo). Supprimez des anciens audits dans « Mes audits » pour libérer de l'espace.",
+      );
+    }
+    throw err;
+  }
 }
 
 async function _migrate(): Promise<void> {
@@ -48,7 +59,7 @@ export function useStorage() {
     async (entry: SavedAuditEntry): Promise<void> => {
       const list = await _getSaved();
       list.unshift(entry);
-      await _setSaved(list);
+      await _setSaved(list.slice(0, MAX_SAVED_AUDITS));
       await refresh();
     },
     [refresh],

@@ -14,6 +14,23 @@ declare global {
   }
 }
 
+let _jsPdfLoadPromise: Promise<void> | null = null;
+
+function loadJsPdf(): Promise<void> {
+  if (_jsPdfLoadPromise) return _jsPdfLoadPromise;
+  _jsPdfLoadPromise = new Promise<void>((resolve, reject) => {
+    const load = (src: string, next: () => void) => {
+      const s = document.createElement('script');
+      s.src = chrome.runtime.getURL(src);
+      s.onload = next;
+      s.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.head.appendChild(s);
+    };
+    load('jspdf.umd.min.js', () => load('jspdf.plugin.autotable.min.js', resolve));
+  });
+  return _jsPdfLoadPromise;
+}
+
 export function useExport() {
   const exportCsv = useCallback(() => {
     const { pagesResults, aggregated, mode, activeStatuses, activeThemes, referential } = auditStore.getState();
@@ -67,13 +84,14 @@ export function useExport() {
   }, []);
 
   const exportPdf = useCallback(
-    (onStart?: () => void, onEnd?: () => void): void => {
+    async (onStart?: () => void, onEnd?: () => void): Promise<void> => {
       const { pagesResults, aggregated, mode, activeStatuses, activeThemes, manualOverrides } = auditStore.getState();
       if (!aggregated || !pagesResults.length) return;
 
       onStart?.();
 
       try {
+        await loadJsPdf();
         const { jsPDF } = window.jspdf;
         const { referential } = auditStore.getState();
 
@@ -426,12 +444,15 @@ export function useExport() {
     const renderKindMd = (kind: 'a11y' | 'eco', sectionLabel: string) => {
       const map = aggregated.byRule[kind];
       if (!map?.size) return '';
-      const entries = [...map.values()].filter((e) => e.aggregateStatus === 'NC');
-      if (!entries.length) return '';
-      sortEntries(entries);
+      const all = [...map.values()].filter((e) => e.aggregateStatus === 'NC');
+      if (!all.length) return '';
+      sortEntries(all);
+      // Cap at 50 worst NC to stay within LLM context windows
+      const entries = all.slice(0, 50);
 
       const total = entries.length;
-      let section = `## ${sectionLabel} — ${total} non-conformité(s)\n\n`;
+      const displayed = entries.length;
+      let section = `## ${sectionLabel} — ${displayed}${displayed < all.length ? `/${all.length}` : ''} non-conformité(s)\n\n`;
 
       entries.forEach((entry, idx) => {
         const r = entry.rule;
@@ -443,9 +464,9 @@ export function useExport() {
           const refLabel = referential === 'wcag'
             ? `WCAG ${RGAA_TO_WCAG[r.rgaa || '']?.criterion || '?'} (niveau ${RGAA_TO_WCAG[r.rgaa || '']?.level || '?'})`
             : `RGAA ${r.rgaa || '?'} (niveau ${r.level || '?'}) · ${r.themeLabel || ''}`;
-          section += `### NC ${num}/${total} · ${refLabel}\n`;
+          section += `### NC ${num}/${displayed} · ${refLabel}\n`;
         } else {
-          section += `### NC${sevLabel} ${num}/${total} · RGESN ${r.critere || '?'} · ${r.thematique || ''}\n`;
+          section += `### NC${sevLabel} ${num}/${displayed} · RGESN ${r.critere || '?'} · ${r.thematique || ''}\n`;
         }
 
         section += `**Règle** : ${r.title || ''}\n\n`;

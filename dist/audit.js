@@ -130,11 +130,15 @@ const sampleElements = (els, n = 5) => {
 // https://www.w3.org/TR/accname-1.2/
 const accessibleName = (el) => {
   if (!el || el.nodeType !== 1) return '';
-  // 1. aria-labelledby
+  // 1. aria-labelledby — gestion self-référence
   const lb = el.getAttribute('aria-labelledby');
   if (lb) {
-    const txt = lb.trim().split(/\s+/).map(id => document.getElementById(id)?.textContent?.trim() || '').filter(Boolean).join(' ');
-    if (txt) return txt;
+    const txts = lb.trim().split(/\s+/).map(id => {
+      const ref = document.getElementById(id);
+      if (ref === el) return el.textContent?.trim() || '';
+      return ref?.textContent?.trim() || '';
+    }).filter(Boolean);
+    if (txts.length) return txts.join(' ');
   }
   // 2. aria-label
   const al = el.getAttribute('aria-label');
@@ -146,6 +150,12 @@ const accessibleName = (el) => {
   }
   const lblParent = el.closest?.('label');
   if (lblParent?.textContent.trim()) return lblParent.textContent.trim();
+  // 3bis. fieldset > legend pour les champs groupés
+  const fs = el.closest?.('fieldset');
+  if (fs) {
+    const legend = fs.querySelector(':scope > legend');
+    if (legend?.textContent.trim()) return legend.textContent.trim();
+  }
   // 4. alt (<img>, <area>)
   const alt = el.getAttribute?.('alt');
   if (alt?.trim()) return alt.trim();
@@ -153,6 +163,8 @@ const accessibleName = (el) => {
   if (el.tagName === 'INPUT' && /^(submit|button|reset)$/i.test(el.type)) {
     if (el.value?.trim()) return el.value.trim();
   }
+  // 5bis. summary de details
+  if (el.tagName === 'SUMMARY') return el.textContent?.replace(/\s+/g, ' ').trim() || '';
   // 6. title
   const t = el.getAttribute?.('title');
   if (t?.trim()) return t.trim();
@@ -182,9 +194,26 @@ const GENERIC_LINK_TEXTS = new Set([
 // ═══════════════════════════════════════════════════════════════
 // §3  Utilitaires couleur + contraste
 // ═══════════════════════════════════════════════════════════════
+let _nrColorCanvas;
+const normalizeColor = (c) => {
+  if (!c || c === 'transparent') return 'rgba(0,0,0,0)';
+  try {
+    if (!_nrColorCanvas) _nrColorCanvas = document.createElement('canvas').getContext('2d');
+    _nrColorCanvas.fillStyle = '#000';
+    _nrColorCanvas.fillStyle = c;
+    return _nrColorCanvas.fillStyle;
+  } catch { return null; }
+};
 const parseColor = (c) => {
-  if (!c || c === 'transparent') return [0, 0, 0, 0];
-  const m = c.match(/\d+(\.\d+)?/g);
+  const norm = normalizeColor(c);
+  if (!norm) return null;
+  if (norm === 'rgba(0,0,0,0)') return [0, 0, 0, 0];
+  if (norm.startsWith('#')) {
+    const hex = norm.slice(1);
+    return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16),
+            hex.length === 8 ? parseInt(hex.slice(6,8),16)/255 : 1];
+  }
+  const m = norm.match(/[\d.]+/g);
   if (!m) return null;
   return [+m[0], +m[1], +m[2], m[3] !== undefined ? +m[3] : 1];
 };
@@ -194,7 +223,7 @@ const parseColor = (c) => {
 // de fond (gradient, url) est rencontrée → contraste non testable auto.
 const bgChain = (el) => {
   let cur = el; const stack = [];
-  while (cur && cur !== document.documentElement) {
+  while (cur) {
     const cs = getComputedStyle(cur);
     if (cs.backgroundImage && cs.backgroundImage !== 'none') return null;
     const c = parseColor(cs.backgroundColor);
@@ -202,6 +231,7 @@ const bgChain = (el) => {
       stack.push(c);
       if (c[3] === 1) break;
     }
+    if (cur === document.documentElement) break;
     cur = cur.parentElement;
   }
   // Blanc par défaut
@@ -284,7 +314,9 @@ const RULES_IMAGES = [
       const generic = /^(image|photo|picture|img|icon|icône|logo|banner|bannière)\.?$/i;
       const bad = imgs.filter(i => {
         const a = i.getAttribute('alt').trim();
-        return a.length < 3 || generic.test(a);
+        if (a.length < 2) return true;
+        if (/^[A-Z]{2,3}$/.test(a)) return false; // sigles courts légitimes (EU, UN, IA…)
+        return generic.test(a);
       });
       return bad.length
         ? { status: 'NC', count: bad.length, measure: `${bad.length} alt trop court(s) ou générique(s) sur ${imgs.length}`, samples: sampleElements(bad) }
@@ -313,17 +345,22 @@ const RULES_IMAGES = [
     title: "Chaque image porteuse d'information complexe a-t-elle une description détaillée ?",
     advice: "Pour les graphiques, cartes, infographies : fournissez une description longue via longdesc, aria-describedby ou texte adjacent.",
     run: () => {
-      const figs = [...document.querySelectorAll('figure')];
-      if (!figs.length) return { status: 'NA', count: 0, measure: 'Aucune figure détectée' };
+      // Ne cibler que les figures contenant une image visible (img, svg, picture, canvas)
+      const figs = [...document.querySelectorAll('figure')].filter(f =>
+        f.querySelector('img, svg, picture, canvas')
+      );
+      if (!figs.length) return { status: 'NA', count: 0, measure: 'Aucune figure contenant une image détectée' };
       const bad = figs.filter(f => {
-        const hasDesc = f.querySelector('figcaption')?.textContent.trim().length >= 10
+        // Conforme si une figcaption est présente (non vide), ou aria-describedby, ou longdesc
+        const figcap = f.querySelector('figcaption');
+        const hasDesc = (figcap && figcap.textContent.trim().length > 0)
           || f.getAttribute('aria-describedby')
           || f.querySelector('img,svg,picture')?.getAttribute('longdesc');
         return !hasDesc;
       });
       return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} figure(s) sans description détaillée`, samples: sampleElements(bad) }
-        : { status: 'C', count: 0, measure: `${figs.length} figure(s) avec description` };
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} figure(s) avec image sans description détaillée`, samples: sampleElements(bad) }
+        : { status: 'C', count: 0, measure: `${figs.length} figure(s) avec image et description` };
     }},
   AUTO_C('img-1.7-long-desc-relevant', '1.7', 1,
     "La description détaillée est-elle pertinente ?",
@@ -383,7 +420,7 @@ const RULES_CADRES = [
     run: () => {
       const frames = [...document.querySelectorAll('iframe[title]')].filter(f => !inNoscript(f));
       if (!frames.length) return { status: 'NA', count: 0 };
-      const generic = /^(iframe|frame|content|embed|sans titre|untitled)$/i;
+      const generic = /^(iframe|frame|content|contenu|embed|sans titre|untitled|no title|unnamed|blank|vide|widget|module|composant|component|publicité|pub|ad|ads|advertisement|section|bandeau|banner|placeholder|insertion|include)$/i;
       const bad = frames.filter(f => generic.test(f.getAttribute('title').trim()));
       if (bad.length) return { status: 'NC', count: bad.length, measure: `${bad.length} iframe(s) avec title générique`, samples: sampleElements(bad) };
       return { status: 'C', count: 0, measure: `${frames.length} iframe(s) avec title non générique` };
@@ -557,7 +594,15 @@ const RULES_TABLEAUX = [
     run: () => {
       const tables = [...document.querySelectorAll('table')].filter(t => !/presentation|none/.test(t.getAttribute('role') || ''));
       if (!tables.length) return { status: 'NA', count: 0 };
+      // Un tableau simple (1 seule ligne d'en-têtes dans thead, pas de rowspan/colspan) n'a pas besoin
+      // de scope explicite — c'est implicite pour les <th> dans <thead>. Seuls les tableaux complexes
+      // doivent être signalés.
+      const isComplex = (t) =>
+        t.querySelector('[rowspan],[colspan]') ||
+        t.querySelectorAll('thead tr').length > 1 ||
+        (t.querySelectorAll('th').length > 0 && t.querySelectorAll('thead').length === 0);
       const bad = tables.filter(t => {
+        if (!isComplex(t)) return false; // tableau simple → C implicite
         const ths = [...t.querySelectorAll('th')];
         if (!ths.length) return false; // couvert par 5.6
         const scoped = ths.filter(th => th.getAttribute('scope')).length;
@@ -565,7 +610,7 @@ const RULES_TABLEAUX = [
         return scoped === 0 && tdsHeaders === 0;
       });
       return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} tableau(x) sans scope ni headers`, samples: sampleElements(bad) }
+        ? { status: 'NC', count: bad.length, measure: `${bad.length} tableau(x) complexe(s) sans scope ni headers`, samples: sampleElements(bad) }
         : { status: 'C', count: 0 };
     }},
   { id: 'tab-5.8-layout', num: '5.8', theme: 5, level: 'A',
@@ -618,6 +663,22 @@ const RULES_LIENS = [
         ? { status: 'NC', count: bad.length, measure: `${bad.length} lien(s) avec intitulé non pertinent`, samples: sampleElements(bad) }
         : null;
     }),
+  NT('lnk-6.3-image-link', '6.3', 6,
+    "Chaque lien composé uniquement d'une image a-t-il une alternative textuelle ?",
+    "Un <a> contenant seulement une <img> doit avoir un alt non vide.",
+    "Vérifiez que chaque lien contenant uniquement une image a un alt pertinent sur l'image (qui décrit la destination du lien, pas l'image elle-même)."),
+  NT('lnk-6.4-image-link-relevant', '6.4', 6,
+    "Pour chaque lien image, l'alternative est-elle pertinente ?",
+    "L'alternative d'un lien image doit décrire la destination du lien.",
+    "Vérifiez que l'attribut alt d'une image utilisée dans un lien décrit la destination du lien, pas le contenu visuel de l'image."),
+  NT('lnk-6.5-title', '6.5', 6,
+    "Chaque lien dont l'intitulé visible n'est pas suffisant a-t-il un attribut title explicite ?",
+    "Un <a title> doit reprendre ou compléter l'intitulé visible du lien.",
+    "Vérifiez que les attributs title sur les liens sont explicites et complémentaires au texte visible. Un title identique au texte visible est inutile."),
+  NT('lnk-6.6-consistent', '6.6', 6,
+    "Dans chaque page web, chaque lien identique renvoie-t-il à la même destination ?",
+    "Deux liens avec le même intitulé doivent pointer vers la même URL.",
+    "Vérifiez manuellement que des liens avec un intitulé identique (ex. 'En savoir plus') pointent bien vers des destinations identiques ou que leurs contextes les différencient."),
 ];
 
 const RULES_SCRIPTS = [
@@ -669,7 +730,7 @@ const RULES_OBLIGATOIRES = [
       const dup = [];
       for (const [, list] of ids) if (list.length > 1) dup.push(...list);
       if (dup.length) return { status: 'NC', count: dup.length, measure: `${dup.length} élément(s) avec id dupliqué`, samples: sampleElements(dup) };
-      return { status: 'C', count: 0, measure: `${ids.size} id(s) uniques — validation W3C profonde non automatisable` };
+      return { status: 'NT', count: 0, measure: `${ids.size} id(s) uniques — validation W3C profonde non automatisable`, manualPrompt: 'Validez le code source via validator.w3.org pour une conformité complète.' };
     }},
   { id: 'obl-8.3-lang', num: '8.3', theme: 8, level: 'A',
     title: "Dans chaque page web, la langue par défaut est-elle présente ?",
@@ -714,12 +775,16 @@ const RULES_OBLIGATOIRES = [
     title: "Dans chaque page web, chaque changement de langue est-il indiqué dans le code source ?",
     advice: "Ajoutez lang=\"en\" sur toute portion en anglais dans une page française.",
     run: () => {
+      // La détection automatique des passages multilingues non balisés est non fiable (faux positifs).
+      // On vérifie uniquement la validité des attributs lang déjà présents.
       const els = [...document.querySelectorAll('[lang]')].filter(el => el !== document.documentElement);
-      if (!els.length) return { status: 'NA', count: 0, measure: 'Aucun changement de langue déclaré' };
+      if (!els.length) {
+        // Pas de passage balisé — impossible de savoir si des passages existent sans analyse textuelle
+        return { status: 'NT', count: 0, measure: 'Aucun attribut lang sur des passages (hors <html>)', manualPrompt: "Vérifiez que chaque passage dans une langue différente de la langue principale de la page est balisé avec l'attribut lang approprié (ex: lang=\"en\")." };
+      }
       const bad = els.filter(el => !/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/.test((el.getAttribute('lang') || '').trim()));
-      return bad.length
-        ? { status: 'NC', count: bad.length, measure: `${bad.length} lang invalide sur passages`, samples: sampleElements(bad) }
-        : { status: 'C', count: 0, measure: `${els.length} passage(s) avec lang valide` };
+      if (bad.length) return { status: 'NC', count: bad.length, measure: `${bad.length} attribut(s) lang invalide(s) sur passages`, samples: sampleElements(bad) };
+      return { status: 'NT', count: 0, measure: `${els.length} passage(s) avec attribut lang valide — vérifiez que tous les passages multilingues sont couverts`, manualPrompt: "Vérifiez que chaque passage dans une langue différente de la langue principale est balisé avec l'attribut lang approprié." };
     }},
   NT('obl-8.8-dir', '8.8', 8, "Dans chaque page web, le code de langue de chaque changement de langue est-il valide et pertinent ?", "Vérifiez les codes de langue sur les passages multilingues."),
   NT('obl-8.9-strict', '8.9', 8, "Dans chaque page web, les balises ne doivent pas être utilisées uniquement à des fins de présentation.", "Vérifiez qu'aucun <table>, <h1>, <blockquote> n'est utilisé pour la mise en forme."),
@@ -791,6 +856,10 @@ const RULES_STRUCTURATION = [
       }
       return null;
     }),
+  NT('str-9.6-text-sense', '9.6', 9,
+    "Dans chaque page web, chaque suite de texte non explicite est-elle suivie d'une explication ?",
+    "Les passages de texte sans signification propre (ex. lettres isolées, codes) doivent être accompagnés d'une explication.",
+    "Vérifiez que tout contenu textuel non évident (acronymes sans développé, codes, sigles) est explicité en contexte ou via <abbr title>."),
 ];
 
 const RULES_PRESENTATION = [
@@ -829,6 +898,12 @@ const RULES_PRESENTATION = [
         }
       } catch {}
       if (killers > 0) return { status: 'NC', count: killers, measure: `${killers} règle(s) CSS suppriment :focus outline sans :focus-visible` };
+      // Si on n'a pas pu lire les feuilles de style (toutes CORS), résultat non fiable
+      let total = 0, readable = 0;
+      try { for (const sh of document.styleSheets) { total++; try { void sh.cssRules; readable++; } catch {} } } catch {}
+      if (total > 0 && readable / total < 0.3) {
+        return { status: 'NT', count: 0, measure: `Feuilles de style inaccessibles (CORS) — ${readable}/${total} lues`, manualPrompt: 'Vérifiez manuellement que :focus n\'est pas masqué sans :focus-visible.' };
+      }
       return { status: 'C', count: 0, measure: 'Aucune règle CSS ne supprime le focus visible' };
     }},
   NT('pre-10.8-hidden-content', '10.8', 10, "Dans chaque page web, le contenu caché doit-il être ignoré par les technologies d'assistance ?", "Vérifiez l'usage correct d'aria-hidden et display:none."),
@@ -837,6 +912,10 @@ const RULES_PRESENTATION = [
   NT('pre-10.11-text-resize', '10.11', 10, "Pour chaque page web, les contenus textuels peuvent-ils être agrandis sans perte d'information ni de fonctionnalité ?", "Testez l'agrandissement via zoom navigateur."),
   NT('pre-10.12-spacing', '10.12', 10, "Dans chaque page web, les propriétés d'espacement du texte peuvent-elles être redéfinies par l'utilisateur sans perte de contenu ou de fonctionnalité ?", "Appliquez les valeurs WCAG 1.4.12 et vérifiez."),
   NT('pre-10.13-tooltip', '10.13', 10, "Dans chaque page web, les contenus cachés visibles au survol ou au focus sont-ils contrôlables ?", "Vérifiez les tooltips (fermeture, persistance, survol)."),
+  NT('pre-10.14-reflow', '10.14', 10,
+    "Dans chaque page web, les contenus peuvent-ils être présentés sans perte d'information pour un affichage en 320 px de large (WCAG 1.4.10) ?",
+    "Testez l'affichage à 320 px de large (zoom 400% sur écran 1280 px) : aucun défilement horizontal ne doit être nécessaire pour lire le contenu.",
+    "Affichez la page à 320 px de largeur ou zoomez à 400% sur un écran 1280 px. Vérifiez qu'aucun contenu n'est tronqué et qu'aucun défilement horizontal n'est nécessaire."),
 ];
 
 const RULES_FORMULAIRES = [
@@ -896,26 +975,64 @@ const RULES_FORMULAIRES = [
         ? { status: 'NC', count: bad.length, measure: `${bad.length} bouton(s) sans nom accessible`, samples: sampleElements(bad) }
         : { status: 'C', count: 0, measure: `${btns.length} bouton(s) nommé(s)` };
     }},
-  { id: 'frm-11.10-check', num: '11.10', theme: 11, level: 'A',
-    title: "Dans chaque formulaire, le contrôle de saisie est-il utilisé de manière pertinente ?",
-    advice: "Utilisez aria-invalid, aria-describedby pour signaler/décrire une erreur.",
-    run: () => {
-      const invalid = [...document.querySelectorAll('[aria-invalid]')].filter(el => !inNoscript(el));
-      const required = [...document.querySelectorAll('input[required], select[required], textarea[required], [aria-required]')].filter(el => !inNoscript(el));
-      if (!required.length) return { status: 'NA', count: 0 };
-      return { status: 'C', count: 0, measure: `${required.length} champ(s) requis — dispositif de contrôle présumé présent (aria-invalid: ${invalid.length})` };
-    }},
+  NT('frm-11.10-check', '11.10', 11,
+    "Dans chaque formulaire, le contrôle de saisie est-il utilisé de manière pertinente ?",
+    "Utilisez aria-invalid, aria-describedby pour signaler/décrire une erreur.",
+    "Soumettez le formulaire avec des données invalides et vérifiez que les erreurs sont signalées via aria-invalid=\"true\" et décrites par aria-describedby.",
+    'A'),
   NT('frm-11.11-help', '11.11', 11, "Dans chaque formulaire, le contrôle de saisie est-il accompagné, si nécessaire, de suggestions ?", "Vérifiez la présence d'aide à la correction des erreurs."),
   NT('frm-11.12-validation', '11.12', 11, "Pour chaque formulaire entraînant une obligation légale ou financière, les données saisies peuvent-elles être modifiées, mises à jour ou récupérées ?", "Vérifiez la possibilité de relire/modifier avant soumission."),
   { id: 'frm-11.13-autofill', num: '11.13', theme: 11, level: 'AA',
     title: "La finalité d'un champ de saisie peut-elle être déduite ?",
     advice: "Ajoutez autocomplete=\"email\", autocomplete=\"name\", etc. sur les champs personnels.",
     run: () => {
-      const personalTypes = { email: 'email', tel: 'tel', url: 'url' };
-      const suspect = [...document.querySelectorAll('input[type=email], input[type=tel], input[type=url]')].filter(el => !el.autocomplete);
-      if (!suspect.length) return { status: 'C', count: 0, measure: 'Tous les champs personnels ont autocomplete' };
-      return { status: 'NC', count: suspect.length, measure: `${suspect.length} champ(s) personnel(s) sans autocomplete`, samples: sampleElements(suspect) };
+      // Valeurs autocomplete HTML valides (sous-ensemble des 53 critiques pour les coordonnées personnelles)
+      const VALID_AUTOCOMPLETE = new Set([
+        'name','honorific-prefix','given-name','additional-name','family-name','honorific-suffix',
+        'nickname','username','new-password','current-password','one-time-code',
+        'organization-title','organization',
+        'street-address','address-line1','address-line2','address-line3',
+        'address-level1','address-level2','address-level3','address-level4',
+        'country','country-name','postal-code',
+        'cc-name','cc-given-name','cc-additional-name','cc-family-name',
+        'cc-number','cc-exp','cc-exp-month','cc-exp-year','cc-csc','cc-type',
+        'transaction-currency','transaction-amount',
+        'language','bday','bday-day','bday-month','bday-year',
+        'sex','url','photo',
+        'tel','tel-country-code','tel-national','tel-area-code','tel-local','tel-extension',
+        'email','impp',
+        'off','on'
+      ]);
+      // Champs à fort enjeu : type email, tel, url + champs texte dont le nom/label suggère une donnée personnelle
+      const personalTypeFields = [...document.querySelectorAll('input[type=email], input[type=tel], input[type=url]')]
+        .filter(el => !inNoscript(el));
+      const personalNamePattern = /^(name|prénom|nom|email|courriel|phone|téléphone|mobile|address|adresse|city|ville|zip|postal|country|pays|birthday|naissance|password|mot.?de.?passe|login|username|utilisateur)$/i;
+      const personalTextFields = [...document.querySelectorAll('input[type=text], input:not([type])')]
+        .filter(el => {
+          if (inNoscript(el)) return false;
+          const nm = (el.name || el.id || accessibleName(el) || '').toLowerCase();
+          return personalNamePattern.test(nm);
+        });
+      const allPersonal = [...new Set([...personalTypeFields, ...personalTextFields])];
+      if (!allPersonal.length) return { status: 'C', count: 0, measure: 'Aucun champ personnel détecté' };
+      const bad = allPersonal.filter(el => {
+        const ac = (el.getAttribute('autocomplete') || '').trim().toLowerCase();
+        if (!ac || ac === '') return true; // pas d'autocomplete
+        // vérifier que la valeur est valide (ignorer les préfixes "shipping " / "billing ")
+        const normalized = ac.replace(/^(shipping|billing|home|work|mobile|fax|pager)\s+/, '');
+        return !VALID_AUTOCOMPLETE.has(normalized) && !VALID_AUTOCOMPLETE.has(ac);
+      });
+      if (!bad.length) return { status: 'C', count: 0, measure: `${allPersonal.length} champ(s) personnel(s) avec autocomplete valide` };
+      return { status: 'NC', count: bad.length, measure: `${bad.length} champ(s) personnel(s) sans autocomplete valide sur ${allPersonal.length}`, samples: sampleElements(bad) };
     }},
+  NT('frm-11.14-auth', '11.14', 11,
+    "Pour chaque formulaire d'authentification, une aide à la connexion est-elle proposée (WCAG 3.3.8) ?",
+    "L'authentification ne doit pas reposer sur un test cognitif (puzzle, calcul) sans alternative. WebAuthn, copy-paste et gestionnaire de mots de passe doivent fonctionner.",
+    "Vérifiez que le formulaire de connexion autorise le copier-coller dans les champs, accepte les gestionnaires de mots de passe (pas d'autocomplete=\"off\" sur le champ password), et ne bloque pas d'assistant cognitif."),
+  NT('frm-11.15-help', '11.15', 11,
+    "Pour chaque page contenant un formulaire, une aide contextuelle est-elle disponible ?",
+    "Un formulaire complexe doit proposer de l'aide : info-bulles, exemples de saisie, lien vers une aide en ligne.",
+    "Vérifiez que les champs complexes proposent des exemples de saisie (placeholder, texte adjacent) ou un lien d'aide, et que les erreurs de validation sont clairement expliquées avec des instructions de correction."),
 ];
 
 const RULES_NAVIGATION = [
@@ -971,15 +1088,27 @@ const RULES_NAVIGATION = [
     title: "Dans chaque page web, un lien d'évitement ou d'accès rapide au contenu est-il présent ?",
     advice: "Ajoutez un lien « Aller au contenu » en première position pointant vers #main.",
     run: () => {
-      const anchors = [...document.querySelectorAll('a[href^="#"]')].slice(0, 5);
-      if (!anchors.length) return { status: 'NC', count: 1, measure: 'Aucun lien d\'évitement en début de page' };
+      // Chercher un lien pointant vers des IDs typiques de contenu principal
+      const SKIP_IDS = new Set(['main-content','main','content','maincontent','contenu','skip','main-nav','nav','wrapper','page-content','page']);
+      // D'abord : y a-t-il un lien ancre vers un ID de contenu connu parmi tous les liens ?
+      const allAnchors = [...document.querySelectorAll('a[href^="#"]')];
+      const byId = allAnchors.find(a => {
+        const hash = a.getAttribute('href').slice(1);
+        return SKIP_IDS.has(hash.toLowerCase());
+      });
+      if (byId) return { status: 'C', count: 0, measure: `Lien d'évitement détecté vers #${byId.getAttribute('href').slice(1)}` };
+      // Puis chercher dans les 20 premiers liens ancres par texte ou aria-label
+      const anchors = allAnchors.slice(0, 20);
+      if (!anchors.length) return { status: 'NC', count: 1, measure: "Aucun lien d'évitement en début de page" };
       const hasSkip = anchors.some(a => {
         const target = document.getElementById(a.getAttribute('href').slice(1));
-        return target && /(skip|aller|contenu|main|content)/i.test(a.textContent + ' ' + (a.getAttribute('aria-label') || ''));
+        return target && /(skip|aller|contenu|main|content|accès rapide|évitement)/i.test(
+          a.textContent + ' ' + (a.getAttribute('aria-label') || '')
+        );
       });
       return hasSkip
-        ? { status: 'C', count: 0, measure: 'Lien d\'évitement détecté' }
-        : { status: 'NC', count: 1, measure: 'Aucun lien d\'évitement identifié dans les 5 premiers liens', samples: sampleElements(anchors) };
+        ? { status: 'C', count: 0, measure: "Lien d'évitement détecté" }
+        : { status: 'NC', count: 1, measure: "Aucun lien d'évitement identifié dans les 20 premiers liens ancres", samples: sampleElements(anchors.slice(0, 5)) };
     }},
   { id: 'nav-12.8-tab-order', num: '12.8', theme: 12, level: 'A',
     title: "Dans chaque page web, l'ordre de tabulation est-il cohérent ?",
@@ -1049,7 +1178,7 @@ const RULES_CONSULTATION = [
     advice: "Utilisez <abbr title=\"forme développée\">.",
     run: () => {
       const abbrs = [...document.querySelectorAll('abbr')];
-      if (!abbrs.length) return { status: 'NA', count: 0, measure: 'Aucune balise <abbr> détectée' };
+      if (!abbrs.length) return { status: 'NT', count: 0, measure: 'Aucune balise <abbr> — abréviations en texte brut non détectables automatiquement', manualPrompt: 'Repérez les abréviations dans le texte et vérifiez que chacune est explicitée via <abbr title="..."> ou en clair dans le texte.' };
       const bad = abbrs.filter(a => !a.getAttribute('title')?.trim());
       return bad.length
         ? { status: 'NC', count: bad.length, measure: `${bad.length} <abbr> sans title`, samples: sampleElements(bad) }
@@ -1269,17 +1398,16 @@ const RULES_ECO = [
     title: "Stratégie de cache des ressources",
     advice: "Configurez Cache-Control avec des durées longues (1 an) sur vos assets versionnés (JS/CSS/images).",
     run: () => {
-      const entries = resourceEntries();
+      const entries = resourceEntries().filter(e => e.encodedBodySize > 0);
       if (!entries.length) return asRuleResult({ severity: 'ok', measure: 'Aucune ressource analysable' });
-      const notCached = entries.filter(e => e.transferSize > 0 && e.encodedBodySize > 0 && e.transferSize >= e.encodedBodySize);
-      const ratio = notCached.length / entries.length;
-      const severity = ratio > 0.8 ? 'critique' : ratio > 0.5 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${notCached.length}/${entries.length} ressource(s) servie(s) sans cache apparent` });
+      const fromCache = entries.filter(e => e.transferSize === 0);
+      const ratio = fromCache.length / entries.length;
+      if (fromCache.length === 0) {
+        return { status: 'NT', count: 0, measure: `Session fraîche — cache non évaluable (${entries.length} ressource(s)). Relancez l'audit après une première visite de la page.`, manualPrompt: 'Vérifiez que vos assets versionnés ont un Cache-Control avec max-age long (ex : 1 an).' };
+      }
+      const severity = ratio < 0.3 ? 'majeur' : ratio < 0.6 ? 'mineur' : 'ok';
+      return asRuleResult({ severity, measure: `${fromCache.length}/${entries.length} ressource(s) servies depuis le cache (${Math.round(ratio * 100)}%)` });
     }},
-  NT('eco-arch-3.7', '3.7', 'Architecture',
-    "Adoption d'IPv6",
-    "Configurez votre infrastructure pour supporter IPv6, plus efficace pour l'adressage réseau à grande échelle."),
-
   // ════════════════════════════════════════════════════════════
   // Thématique 4 — Expérience et interface utilisateur
   // ════════════════════════════════════════════════════════════
@@ -1397,13 +1525,6 @@ const RULES_ECO = [
       if (hasDark || toggleBtn) return asRuleResult({ severity: 'ok', measure: hasDark ? 'Mode sombre via prefers-color-scheme' : 'Toggle de thème présent dans le DOM' });
       return asRuleResult({ severity: 'mineur', measure: 'Aucun mode sombre détecté (prefers-color-scheme ou toggle)' });
     }},
-  NT('eco-ux-4.14', '4.14', 'Expérience et interface utilisateur',
-    "Données de géolocalisation non conservées si inutiles",
-    "Ne stockez pas les coordonnées GPS des utilisateurs si elles ne sont pas strictement nécessaires au service."),
-  NT('eco-ux-4.15', '4.15', 'Expérience et interface utilisateur',
-    "Bilan carbone ou mesure d'impact proposé",
-    "Proposez aux utilisateurs un indicateur ou bilan de l'impact environnemental de leur usage du service."),
-
   // ════════════════════════════════════════════════════════════
   // Thématique 5 — Contenus
   // ════════════════════════════════════════════════════════════
@@ -1580,59 +1701,6 @@ const RULES_ECO = [
       const severity = dups.size > 3 ? 'majeur' : dups.size > 0 ? 'mineur' : 'ok';
       return asRuleResult({ severity, measure: `${dups.size} ressource(s) chargée(s) plusieurs fois`, details });
     }},
-  NT('eco-front-6.10', '6.10', 'Frontend',
-    "Fonctionnalités non utilisées supprimées",
-    "Faites une revue du code pour supprimer les fonctionnalités abandonnées, les dépendances inutilisées et le code mort."),
-  { id: 'eco-front-page-weight', num: '6.11', theme: 'Frontend',
-    title: "Volume total de données transférées",
-    advice: "Compressez les images (WebP/AVIF), minifiez JS/CSS, activez la compression serveur (gzip/brotli), supprimez les ressources inutiles.",
-    run: () => {
-      const entries = resourceEntries();
-      const total = entries.reduce((a, e) => a + (e.transferSize || 0), 0) + (navEntry()?.transferSize || 0);
-      const all = [...entries, navEntry()].filter(e => e && e.transferSize > 0);
-      const details = all.sort((a, b) => b.transferSize - a.transferSize).slice(0, 10).map(e => ({
-        label: new URL(e.name, location.href).pathname.split('/').pop() || e.name,
-        value: `${Math.round(e.transferSize / 1024)} Ko`
-      }));
-      const severity = total > 2097152 ? 'critique' : total > 1048576 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${(total/1024).toFixed(0)} Ko transférés (${entries.length + 1} requêtes)`, details });
-    }},
-  { id: 'eco-front-compression', num: '6.12', theme: 'Frontend',
-    title: "Compression des transferts (gzip/brotli)",
-    advice: "Activez gzip ou brotli sur votre serveur pour le HTML, CSS, JS et SVG. Brotli offre 15-20% de compression supplémentaire.",
-    run: () => {
-      const textual = resourceEntries().filter(e => /\.(js|mjs|css|svg|json|html?|xml)(\?|$)/i.test(e.name) && e.encodedBodySize > 1024);
-      const uncompressed = textual.filter(e => e.encodedBodySize > 0 && e.decodedBodySize > 0 && e.encodedBodySize === e.decodedBodySize);
-      const severity = uncompressed.length / (textual.length || 1) > 0.5 ? 'critique' : uncompressed.length > 0 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${uncompressed.length} ressource(s) textuelle(s) non compressée(s) sur ${textual.length}` });
-    }},
-  { id: 'eco-front-dom', num: '6.3', theme: 'Frontend',
-    title: "Taille du DOM",
-    advice: "Réduisez le nombre de nœuds DOM. Utilisez la virtualisation pour les listes longues. Simplifiez la structure HTML.",
-    run: () => {
-      const n = document.querySelectorAll('*').length;
-      const severity = n > 1500 ? 'critique' : n > 800 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${n} nœuds DOM` });
-    }},
-  { id: 'eco-front-img-dim', num: '5.3', theme: 'Frontend',
-    title: "Images sans dimensions explicites",
-    advice: "Spécifiez width et height (ou aspect-ratio CSS) pour éviter les reflows de mise en page (CLS).",
-    run: () => {
-      const miss = [...document.querySelectorAll('img')].filter(img => !inNoscript(img) && (!img.hasAttribute('width') || !img.hasAttribute('height')) && !img.style.aspectRatio);
-      const severity = miss.length > 3 ? 'majeur' : miss.length > 0 ? 'mineur' : 'ok';
-      return asRuleResult({ severity, measure: `${miss.length} image(s) sans dimensions`, elements: miss });
-    }},
-  { id: 'eco-front-http-requests', num: '6.2', theme: 'Frontend',
-    title: "Nombre de requêtes HTTP par page",
-    advice: "Mutualisez les fichiers JS/CSS (bundling), utilisez des sprites SVG, groupez les appels API, activez HTTP/2.",
-    run: () => {
-      const count = resourceEntries().length + 1;
-      const byType = {};
-      resourceEntries().forEach(e => { const t = e.initiatorType || 'other'; byType[t] = (byType[t] || 0) + 1; });
-      const details = Object.entries(byType).sort((a, b) => b[1] - a[1]).map(([type, cnt]) => ({ label: type, value: `${cnt}` }));
-      const severity = count > 80 ? 'critique' : count > 40 ? 'majeur' : 'ok';
-      return asRuleResult({ severity, measure: `${count} requêtes HTTP`, details });
-    }},
 
   // ════════════════════════════════════════════════════════════
   // Thématique 7 — Backend
@@ -1655,38 +1723,22 @@ const RULES_ECO = [
   NT('eco-back-7.7', '7.7', 'Backend',
     "Architecture serverless ou mutualisée si pertinente",
     "Évaluez si une architecture serverless ou mutualisée réduit les ressources allouées par rapport à un serveur dédié sous-utilisé."),
-  NT('eco-back-7.8', '7.8', 'Backend',
-    "Stockage des données optimisé",
-    "Utilisez le type de stockage adapté (SGBDR, NoSQL, fichiers). Compressez les données volumineuses. Évitez les redondances."),
-  NT('eco-back-7.9', '7.9', 'Backend',
-    "API efficace (pas de sur-livraison de données)",
-    "Implémenter GraphQL ou des champs sélectifs pour éviter de renvoyer plus de données que nécessaire. Paginez les listes."),
   { id: 'eco-back-ttfb', num: '7.1', theme: 'Backend',
     title: "Temps de réponse serveur (TTFB)",
     advice: "Un TTFB élevé signale un backend lent. Activez le cache serveur, optimisez les requêtes SQL, utilisez un CDN.",
     run: () => {
       const nav = navEntry();
-      if (!nav) return { status: 'C', count: 0, measure: 'Mesure TTFB indisponible' };
+      if (!nav) return { status: 'NT', count: 0, measure: 'Mesure TTFB indisponible', manualPrompt: 'Mesurez le TTFB via les outils de développement (onglet Réseau).' };
+      try {
+        const navPath = new URL(nav.name).pathname;
+        if (navPath !== location.pathname) {
+          return { status: 'NT', count: 0, measure: `SPA détectée — TTFB de la navigation initiale (${navPath}) ne reflète pas la page actuelle`, manualPrompt: 'Mesurez le TTFB côté serveur via les outils du navigateur.' };
+        }
+      } catch {}
       const ttfb = nav.responseStart - nav.requestStart;
       const severity = ttfb > 1500 ? 'critique' : ttfb > 600 ? 'majeur' : 'ok';
       return asRuleResult({ severity, measure: `TTFB : ${Math.round(ttfb)} ms` });
     }},
-  NT('eco-back-7.10', '7.10', 'Backend',
-    "Logs serveur raisonnés",
-    "Limitez le niveau de logs en production. Archivez et purgez les logs régulièrement. Évitez les logs verbeux en temps réel."),
-  NT('eco-back-7.11', '7.11', 'Backend',
-    "Emails transactionnels limités",
-    "N'envoyez que les emails strictement nécessaires. Regroupez les notifications. Évitez les relances automatiques inutiles."),
-  NT('eco-back-7.12', '7.12', 'Backend',
-    "Médias optimisés côté serveur",
-    "Utilisez un pipeline de traitement des médias pour les redimensionner et les convertir automatiquement à l'upload."),
-  NT('eco-back-7.13', '7.13', 'Backend',
-    "Outils de build adaptés",
-    "Configurez votre CI/CD pour éviter les builds inutiles. Utilisez le cache de build (Docker layers, turborepo)."),
-  NT('eco-back-7.14', '7.14', 'Backend',
-    "Durée de rétention des données définie",
-    "Définissez et appliquez des politiques de rétention des données (RGPD). Supprimez les données inutiles automatiquement."),
-
   // ════════════════════════════════════════════════════════════
   // Thématique 8 — Hébergement
   // ════════════════════════════════════════════════════════════
@@ -1714,10 +1766,6 @@ const RULES_ECO = [
   NT('eco-host-8.8', '8.8', 'Hébergement',
     "Ressources serveur adaptées à la charge réelle",
     "Analysez la consommation CPU/RAM réelle et ajustez les instances. Évitez le sur-provisionnement chronique."),
-  NT('eco-host-8.9', '8.9', 'Hébergement',
-    "Politique de fin de vie des serveurs",
-    "Définissez une politique de remplacement/reconditionnement du matériel. Favorisez les hébergeurs qui reconditionnent leurs serveurs."),
-
   // ════════════════════════════════════════════════════════════
   // Thématique 9 — Algorithmie
   // ════════════════════════════════════════════════════════════
@@ -1739,24 +1787,6 @@ const RULES_ECO = [
   NT('eco-algo-9.6', '9.6', 'Algorithmie',
     "Modèles pré-entraînés réutilisés si disponibles",
     "Réutilisez des modèles pré-entraînés (fine-tuning) plutôt que d'entraîner from scratch pour économiser les ressources."),
-  NT('eco-algo-9.7', '9.7', 'Algorithmie',
-    "Modèles IA obsolètes mis à jour ou supprimés",
-    "Maintenez un inventaire des modèles déployés. Supprimez les modèles non utilisés ou remplacés par de meilleures versions."),
-  NT('eco-algo-9.8', '9.8', 'Algorithmie',
-    "Critères de sortie définis pour les algorithmes itératifs",
-    "Définissez des conditions d'arrêt claires (convergence, nombre max d'itérations) pour éviter les traitements infinis."),
-  NT('eco-algo-9.9', '9.9', 'Algorithmie',
-    "Résultats de calculs mis en cache",
-    "Mémoïsez les résultats coûteux (calculs récurrents, réponses API). Évitez de recalculer ce qui n'a pas changé."),
-  NT('eco-algo-9.10', '9.10', 'Algorithmie',
-    "Stockage et traitement des données optimisés",
-    "Utilisez des formats de données compacts. Traitez les données en flux (streaming) plutôt qu'en chargeant tout en mémoire."),
-  NT('eco-algo-9.11', '9.11', 'Algorithmie',
-    "Données traitées à proximité de leur source",
-    "Traitez les données là où elles sont générées (edge computing) pour réduire les transferts réseau longue distance."),
-  NT('eco-algo-9.12', '9.12', 'Algorithmie',
-    "Pertinence de chaque traitement de données évaluée",
-    "Questionnez chaque traitement de données : est-il nécessaire ? Peut-il être différé, regroupé ou supprimé ?"),
 ];
 
 // ═══════════════════════════════════════════════════════════════
@@ -1768,7 +1798,7 @@ const results = {
   meta: {
     url: location.href,
     title: document.title,
-    rgaaTotal: ALL_A11Y.length,
+    rgaaTotal: 106,
     rgaaThemes: RGAA_THEMES,
     ecoTotal: RULES_ECO.length,
     ecoThemes: RGESN_THEMES,
@@ -1776,13 +1806,19 @@ const results = {
   }
 };
 
-const runRules = (list, kind) => {
+const runRules = async (list, kind) => {
   const out = [];
+  let i = 0;
   for (const rule of list) {
     let res;
     try { res = rule.run(); } catch (e) {
       console.warn('[NR] rule failed:', rule.id, e);
-      res = { status: 'C', count: 0, measure: 'Erreur d\'exécution de la règle — statut par défaut Conforme' };
+      res = {
+        status: 'NT',
+        count: 0,
+        measure: `Erreur d'exécution : ${e?.message || String(e)}`,
+        manualPrompt: "Cette règle n'a pas pu s'exécuter automatiquement. Vérifiez manuellement."
+      };
     }
     const entry = {
       id: rule.id,
@@ -1797,7 +1833,6 @@ const runRules = (list, kind) => {
     };
     if (kind === 'a11y') {
       entry.rgaa = rule.num;
-      entry.theme = rule.theme;
       entry.themeLabel = RGAA_THEMES[rule.theme];
       entry.level = rule.level || 'A';
     } else {
@@ -1806,15 +1841,16 @@ const runRules = (list, kind) => {
       entry.severity = res.severity || (res.status === 'NC' ? 'majeur' : null);
     }
     out.push(entry);
+    if (++i % 20 === 0) await new Promise(r => setTimeout(r, 0));
   }
   return out;
 };
 
 if (mode === 'a11y' || mode === 'both') {
-  results.a11y = runRules(ALL_A11Y, 'a11y');
+  results.a11y = await runRules(ALL_A11Y, 'a11y');
 }
 if (mode === 'eco' || mode === 'both') {
-  results.eco = runRules(RULES_ECO, 'eco');
+  results.eco = await runRules(RULES_ECO, 'eco');
 }
 
 globalThis.__nrAuditIdCounter = __nrCounter;
